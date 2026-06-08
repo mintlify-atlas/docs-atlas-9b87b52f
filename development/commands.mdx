@@ -1,0 +1,124 @@
+---
+title: "Development Commands Reference for AgentSwarm"
+sidebarTitle: "Commands"
+description: "All npm scripts and harness shell commands for developing, testing, linting, building, and preparing pull requests in the AgentSwarm monorepo."
+---
+
+AgentSwarm ships two layers of tooling: a set of shell scripts in `scripts/harness/` that form the canonical development harness, and npm workspace scripts that wrap or complement them. This reference lists every command you'll need for day-to-day development, testing, linting, and preparing pull requests.
+
+## Stack Commands
+
+The `agentswarm.sh` script at the repository root manages the full Docker Compose stack. Use it to start, stop, and rebuild services.
+
+| Command | Description |
+|---|---|
+| `./agentswarm.sh init` | Build runtime images, rebuild Compose images, and start the stack. Use this on a clean checkout when you want Docker services only (without npm deps). |
+| `./agentswarm.sh start` | Start the Docker Compose stack in the background. |
+| `./agentswarm.sh rebuild` | Rebuild the runtime and Compose images, then restart the stack. Use this after changes to a Dockerfile or runtime image. |
+| `./agentswarm.sh stop` | Stop the Docker Compose stack. |
+| `./agentswarm.sh help` | Print available commands and usage. |
+
+## Harness Scripts
+
+The harness scripts in `scripts/harness/` are the canonical entry points for setup, checks, tests, and pull-request readiness. These are the same scripts that run in CI.
+
+| Script | Description |
+|---|---|
+| `./scripts/harness/setup.sh` | Initialise the Docker stack and create runtime folders (`local-plans/`, `task-workspaces/`). Creates `.env` from `.env.example` if missing. |
+| `HARNESS_INSTALL_NPM_DEPS=1 ./scripts/harness/setup.sh` | Same as above, and also installs npm dependencies via `npm ci --include=dev`. Required before running check, test, or pr-ready flows. |
+| `HARNESS_DB_RESET=1 ./scripts/harness/setup.sh` | Wipe and recreate local Postgres and Redis Docker volumes before setup. |
+| `./scripts/harness/start.sh` | Start the development stack and wait until the health endpoint responds. Equivalent to booting the app and confirming it is ready. |
+| `./scripts/harness/check.sh` | Run the full local check suite: docs checks, human-gated flow checks, architecture boundary checks, lint, and build. |
+| `./scripts/harness/test.sh` | Run the canonical test suite (server unit/integration tests and web tests). |
+| `./scripts/harness/pr-ready.sh` | Run the complete pull-request readiness check: boundary checks, lint, type checks, tests, build, and Docker Compose config validation. Also forces dependency installation when `node_modules` is missing. |
+| `./scripts/harness/doctor.sh` | Verify that all required tools (`docker`, `node`, `npm`, `python3`, `bash`) and harness scripts are present and functional. |
+| `./scripts/harness/logs.sh` | Tail Docker Compose logs for all services. Pass a service name to filter (e.g. `./scripts/harness/logs.sh server`). |
+
+<Note>
+  `pr-ready.sh` is the single command to run before opening any pull request. It covers everything `check.sh` and `test.sh` cover, plus additional readiness gates.
+</Note>
+
+## npm Scripts
+
+These scripts are defined in the root `package.json` and operate across all workspaces.
+
+| Script | Command | Description |
+|---|---|---|
+| Dev (all) | `npm run dev` | Run server and web dev processes together using `concurrently`. Equivalent to starting both `@agentswarm/server` and `@agentswarm/web` with hot reload. |
+| Dev (server only) | `npm run dev:server` | Run the Fastify server dev process only (`tsx watch`). |
+| Dev (web only) | `npm run dev:web` | Run the Next.js dev server only. |
+| Lint | `npm run lint` | TypeScript `--noEmit` checks for both `@agentswarm/server` and `@agentswarm/web`. Fails on any type error. |
+| Type check | `npm run typecheck` | Alias for `npm run lint`. |
+| Build | `npm run build` | Build `@agentswarm/shared-types`, then `@agentswarm/server`, then `@agentswarm/web` in dependency order. |
+| Test | `npm run test` | Delegates to `./scripts/harness/test.sh`. This is the canonical test entry point. |
+
+## Workspace-Specific Commands
+
+Use the `-w` flag to run scripts scoped to a single workspace package.
+
+**Server (`@agentswarm/server`)**
+
+```bash
+npm run dev -w @agentswarm/server       # Start with hot reload (tsx watch src/index.ts)
+npm run build -w @agentswarm/server     # Compile TypeScript
+npm run lint -w @agentswarm/server      # tsc --noEmit type check
+npm run test -w @agentswarm/server      # Run server unit and integration tests
+npm run db:migrate -w @agentswarm/server  # Run Postgres migrations
+```
+
+**Web (`@agentswarm/web`)**
+
+```bash
+npm run dev -w @agentswarm/web          # Start Next.js dev server on port 3217
+npm run build -w @agentswarm/web        # next build
+npm run lint -w @agentswarm/web         # tsc --noEmit type check
+npm run test -w @agentswarm/web         # Run web utility tests
+```
+
+**Shared types (`@agentswarm/shared-types`)**
+
+```bash
+npm run build -w @agentswarm/shared-types  # Compile shared TypeScript types
+```
+
+<Tip>
+  Always build `@agentswarm/shared-types` first when doing a clean build. The root `npm run build` handles this ordering automatically.
+</Tip>
+
+## Architecture Boundary Checks
+
+Boundary checks enforce the separation between the server, web, and shared-types packages. You can run them in isolation or as part of the full check suite:
+
+```bash
+# Run boundary checks only
+node ./scripts/harness/boundary-check.mjs
+
+# Run full checks (includes boundary checks, lint, and build)
+./scripts/harness/check.sh
+```
+
+See the [Architecture](/development/architecture) page for details on what the boundary rules enforce.
+
+## Before Opening a PR
+
+Run the full readiness suite before pushing your branch and opening a pull request:
+
+```bash
+./scripts/harness/pr-ready.sh
+```
+
+This single command runs boundary checks, lint, type checks, all tests, a full build, and Docker Compose config validation. It also auto-installs npm dependencies if `node_modules/` is missing.
+
+<Warning>
+  Do not skip `pr-ready.sh`. The same checks run in CI via `.github/workflows/harness-check.yml`, so failures caught locally save a round trip.
+</Warning>
+
+## Repomix Context Bundle
+
+After any agent-generated repository edit, refresh the Repomix context bundle so that subsequent agent sessions have an up-to-date snapshot of the codebase:
+
+```bash
+npx repomix --style markdown --output docs/repomix.md
+```
+
+This regenerates `docs/repomix.md` as a single Markdown file containing the full repository source, which agents use as a context window reference.

@@ -1,0 +1,103 @@
+---
+title: "User Roles and Permissions in AgentSwarm"
+sidebarTitle: "Roles & Users"
+description: "Manage user accounts and roles in AgentSwarm. Understand the permission scopes that control access to tasks, repositories, snippets, and admin features."
+---
+
+AgentSwarm uses a role-based access control model. Every user is assigned one or more roles, and each role carries a set of permission scopes that determine what actions the user can take in the UI and API. Admin users have unrestricted access; all other users are governed entirely by the scopes granted through their assigned roles.
+
+## User Management
+
+Admin users can create, edit, and deactivate other users from the **Users** page (`/users`). User records include a display name, email address, active/inactive status, one or more assigned roles, and an optional list of repository IDs that restrict which repositories the user can access.
+
+When a user's roles or repositories are updated, all existing sessions for that user are immediately invalidated. The user will be required to log in again before their next request. Disabling a user (`active: false`) also invalidates all their sessions. A user cannot disable or delete their own account.
+
+<Note>
+  Assigning or removing `roleIds` and `repositoryIds` during user creation or update requires the `settings:edit` scope in addition to `user:create` or `user:edit`.
+</Note>
+
+## Roles
+
+Roles are named groupings of permission scopes. Each role can also restrict which AI providers (`allowedProviders`), models (`allowedModels`), and effort levels (`allowedEfforts`) members of that role are permitted to use when creating tasks.
+
+Roles marked `isSystem: true` are built-in roles managed by AgentSwarm. System roles are **immutable** — they cannot be edited or deleted via the API. Custom roles can be created, updated, and deleted freely, provided they are not currently assigned to any user at deletion time.
+
+## Permission Scopes
+
+Every API endpoint that requires authorization checks that the calling user holds the required scopes. The full set of permission scopes is organized into six groups:
+
+### Tasks
+
+| Scope | What it controls |
+|---|---|
+| `task:list` | List all tasks visible to the user |
+| `task:create` | Create new tasks |
+| `task:read` | View task detail, messages, logs, diffs, and checkpoints |
+| `task:edit` | Edit task metadata (title, notes, deadline, assignee, config) |
+| `task:build` | Trigger build (code-writing) runs on a task |
+| `task:ask` | Trigger ask (read-only Q&A) runs on a task |
+| `task:interactive` | Open interactive browser terminal sessions on a task |
+| `task:delete` | Delete tasks |
+
+### Snippets
+
+| Scope | What it controls |
+|---|---|
+| `snippet:list` | List all snippets |
+| `snippet:create` | Create new prompt snippets |
+| `snippet:read` | View snippet detail and content |
+| `snippet:edit` | Update snippet name, content, and variables |
+| `snippet:delete` | Delete snippets |
+
+### Sequences
+
+| Scope | What it controls |
+|---|---|
+| `sequence:list` | List all prompt sequences |
+| `sequence:create` | Create new sequences |
+| `sequence:read` | View sequence detail and steps |
+| `sequence:edit` | Update sequence name, steps, and execution mode |
+| `sequence:delete` | Delete sequences |
+
+### Repositories
+
+| Scope | What it controls |
+|---|---|
+| `repo:list` | List repositories the user has access to |
+| `repo:read` | View repository detail, branches, and automation config |
+| `repo:create` | Add new repositories to AgentSwarm |
+| `repo:edit` | Update repository settings, env vars, webhooks, and automation rules |
+| `repo:delete` | Remove repositories |
+
+### Settings
+
+| Scope | What it controls |
+|---|---|
+| `settings:read` | Read system settings, credentials status, roles, and MCP server config |
+| `settings:edit` | Write system settings, credentials, roles, and user role/repository assignments |
+
+### Users
+
+| Scope | What it controls |
+|---|---|
+| `user:list` | List all users |
+| `user:create` | Create new user accounts |
+| `user:read` | View individual user profiles |
+| `user:edit` | Update user accounts (name, email, password, active status, roles, repositories) |
+| `user:delete` | Delete user accounts |
+
+## Admin Users
+
+Admin users bypass scope checks entirely and have full access to all resources, including settings, credentials, roles, all repositories, and all users. Admin status is a separate flag from roles — it is not a role that can be granted or revoked through the roles UI.
+
+## Task Ownership
+
+Tasks have an `ownerUserId` that identifies the user responsible for the task. Ownership affects task visibility and filtering in the UI. A user with `task:edit` can reassign task ownership via `UpdateTaskAssigneeInput`. Tasks can also be created without an owner when triggered by automation rules or webhook events.
+
+## Bootstrap Admin
+
+The very first admin account is created automatically at server startup using the `DEFAULT_ADMIN_NAME`, `DEFAULT_ADMIN_EMAIL`, and `DEFAULT_ADMIN_PASSWORD` values from `.env`. This bootstrap process runs only once — if an admin account already exists, these variables are ignored.
+
+<Warning>
+  The default bootstrap password (`admin123!`) is publicly known from `.env.example`. You must change the admin password — either in `.env` before first startup, or immediately via the UI or API after first login — before exposing AgentSwarm on any non-local network.
+</Warning>

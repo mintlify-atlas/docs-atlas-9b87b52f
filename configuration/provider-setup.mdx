@@ -1,0 +1,131 @@
+---
+title: "Configure AI Providers: Codex and Claude"
+sidebarTitle: "Provider Setup"
+description: "Add OpenAI and Anthropic API keys in AgentSwarm Settings. Configure default models, reasoning effort, and per-user Codex authentication profiles."
+---
+
+AgentSwarm supports two AI providers out of the box: **OpenAI Codex** and **Anthropic Claude**. All provider credentials — API keys, base URL overrides, and GitHub tokens — are configured through the Settings UI, not in `.env`. This keeps secrets out of your filesystem and allows credentials to be rotated without restarting the stack.
+
+## Where Credentials Live
+
+Provider credentials are stored in the AgentSwarm database under write-only semantics: once saved, raw key values are **never returned** by the API. The Settings response only tells you whether a credential is configured (`openaiApiKeyConfigured: true`). To replace a key, simply save a new value; to remove it, use the corresponding clear flag (`clearOpenAiApiKey`, `clearAnthropicApiKey`, or `clearGithubToken`).
+
+<Note>
+  All credential endpoints require the `settings:edit` permission scope. Admin users have this scope by default.
+</Note>
+
+## OpenAI / Codex Setup
+
+<Steps>
+  <Step title="Obtain an OpenAI API key">
+    Visit [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and create a new secret key. Copy it — you will only see it once.
+  </Step>
+  <Step title="Open AgentSwarm Settings and enter your API key">
+    Sign in to AgentSwarm, navigate to **Settings**, and paste the key into the **OpenAI API Key** field. Save the form. The `openaiApiKeyConfigured` flag will flip to `true`.
+  </Step>
+  <Step title="Set the default Codex model">
+    Choose a `codexDefaultModel` from the available options:
+
+    | Value | Label |
+    |---|---|
+    | `gpt-5.4` | GPT-5.4 |
+    | `o3` | o3 |
+    | `o4-mini` | o4-mini |
+    | `o3-mini` | o3-mini |
+    | `gpt-4.1` | GPT-4.1 |
+    | `gpt-4o` | GPT-4o |
+
+    The default model applied to new tasks is `gpt-5.4`.
+  </Step>
+  <Step title="Set the default reasoning effort">
+    Choose a `codexDefaultEffort` value. Codex natively supports three reasoning effort levels:
+
+    | Value | Behaviour |
+    |---|---|
+    | `low` | Faster, lower token usage. Best for simple or well-scoped tasks. |
+    | `medium` | Balanced speed and reasoning depth. |
+    | `high` | Maximum reasoning depth. Best for complex tasks that require planning across many files. |
+  </Step>
+  <Step title="Optionally configure a custom OpenAI-compatible endpoint">
+    If you are using a proxy, a self-hosted model, or an OpenAI-compatible API (such as Azure OpenAI or a local LLM), set `openaiBaseUrl` to your endpoint. Leave it `null` to use `https://api.openai.com` directly.
+  </Step>
+</Steps>
+
+## Anthropic / Claude Setup
+
+<Steps>
+  <Step title="Obtain an Anthropic API key">
+    Visit [console.anthropic.com](https://console.anthropic.com) and create an API key under your workspace.
+  </Step>
+  <Step title="Open AgentSwarm Settings and enter your API key">
+    Navigate to **Settings** in AgentSwarm and paste the key into the **Anthropic API Key** field. Save the form. The `anthropicApiKeyConfigured` flag will flip to `true`.
+  </Step>
+  <Step title="Set the default Claude model">
+    Choose a `claudeDefaultModel` from the available options:
+
+    | Value | Label |
+    |---|---|
+    | `claude-opus-4-5` | Claude Opus 4 |
+    | `claude-sonnet-4-5` | Claude Sonnet 4.5 |
+    | `claude-sonnet-4` | Claude Sonnet 4 |
+    | `claude-haiku-3-5` | Claude Haiku 3.5 |
+
+    The default model applied to new tasks is `claude-sonnet-4-5`.
+  </Step>
+  <Step title="Set the default reasoning effort">
+    Choose a `claudeDefaultEffort` value. Claude supports four effort levels — including `max`, which is Claude-only:
+
+    | Value | Behaviour |
+    |---|---|
+    | `low` | Maps to a low thinking budget. Fastest response, least reasoning. |
+    | `medium` | Moderate thinking budget. |
+    | `high` | Large thinking budget. Suitable for complex multi-step tasks. |
+    | `max` | Leaves the thinking budget unset, allowing the model to use as much as needed. Claude-only. |
+  </Step>
+</Steps>
+
+## Per-Task Model Override
+
+When creating or editing a task, you can override the default model by setting `modelOverride`. This lets you run a specific task at a higher or lower model tier than the system default without changing the global setting. If `modelOverride` is `null` or omitted, the task inherits `codexDefaultModel` or `claudeDefaultModel` from Settings.
+
+## Codex Auth Profiles
+
+Codex tasks can authenticate with OpenAI using one of three credential sources, controlled by `codexCredentialSource` on the task:
+
+<CardGroup cols={3}>
+  <Card title="auto" icon="wand-magic-sparkles">
+    AgentSwarm automatically selects the best available credential source. Uses the user's personal Codex auth JSON if configured; falls back to the global API key.
+  </Card>
+  <Card title="profile" icon="user">
+    Uses the requesting user's personal `codexAuthJson` credential. Each user can configure their own Codex authentication JSON from their profile settings (`UpdateAuthProfileInput.codexAuthJson`). Sessions are invalidated when the auth JSON is updated.
+  </Card>
+  <Card title="global" icon="globe">
+    Uses the shared `openaiApiKey` configured in Settings. All tasks using this source draw from the same key regardless of which user created the task.
+  </Card>
+</CardGroup>
+
+The `codexAuthJsonConfigured` flag on the user's auth session indicates whether a personal Codex auth JSON is stored. To clear it, send `clearCodexAuthJson: true` in an `UpdateAuthProfileInput` request.
+
+## GitHub Token
+
+A GitHub personal access token is also configured in Settings (not in `.env`). It is used for:
+
+- Importing tasks from GitHub issues and pull requests
+- Posting status updates back to GitHub when `syncStatusEnabled` is on for a repository
+- GitHub webhook secret validation
+
+Navigate to **Settings → Credentials** and paste your token into the **GitHub Token** field. To remove it, send `clearGithubToken: true` via the credentials API or use the corresponding UI control.
+
+## Clearing Credentials
+
+To remove a credential without replacing it, use the clear flags available in `UpdateCredentialSettingsInput`:
+
+```json
+{
+  "clearGithubToken": true,
+  "clearOpenAiApiKey": true,
+  "clearAnthropicApiKey": true
+}
+```
+
+Send any combination of these flags in a `PATCH /api/settings/credentials` request (requires `settings:edit`). Only the flags you include are acted on; omitting a flag leaves the corresponding credential unchanged.

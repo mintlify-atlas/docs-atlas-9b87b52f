@@ -1,0 +1,96 @@
+---
+title: "Reusable Prompt Snippets for Common Tasks"
+sidebarTitle: "Snippets"
+description: "Create and manage reusable prompt templates called snippets. Use snippets as task starting points or as steps inside sequences."
+---
+
+Snippets are saved prompt templates that you can reuse across many tasks without rewriting the same instruction each time. A snippet captures the prompt content once and lets you reference it by ID when creating tasks or building sequences. If you update a snippet, every task or sequence that references it picks up the change at the next execution.
+
+## What Snippets Are
+
+A snippet has a name, a prompt body, and an optional set of template variables. The prompt body is the raw instruction text that will be sent to the agent. Variables let you parameterize the prompt so the same snippet can be used for different inputs — for example, a "write tests for a file" snippet where the file path is filled in at run time.
+
+Snippets are global — they are not scoped to a specific repository. You can use the same snippet across any repository.
+
+## Creating a Snippet
+
+<Steps>
+  <Step title="Open Snippets">
+    Navigate to **Snippets** in the main navigation and click **New Snippet**.
+  </Step>
+  <Step title="Name your snippet">
+    Give the snippet a descriptive name (up to 120 characters) so it is easy to find in the task creation form.
+  </Step>
+  <Step title="Write the prompt">
+    Enter the prompt content. The maximum length is 20,000 characters. Use `{{variable_name}}` placeholders anywhere you want the caller to supply a value at run time.
+  </Step>
+  <Step title="Add variables (optional)">
+    For each placeholder in your prompt, add a corresponding variable entry. Variable names must match the pattern `/^[A-Za-z_][A-Za-z0-9_]*$/` and have a maximum length of 128 characters.
+
+    Each variable has:
+    - **type** — `text` (single-line) or `multiline`
+    - **title** — label shown in the task form (max 200 characters)
+    - **description** — helper text shown alongside the input (max 200 characters)
+    - **defaultValue** — pre-filled value (max 2,000 characters); `text` variables must not contain line breaks
+  </Step>
+  <Step title="Save">
+    Click **Save**. The snippet is immediately available in the task creation form.
+  </Step>
+</Steps>
+
+## Using Snippets in Tasks
+
+When creating a task, set `task_source` to `snippet` and provide the `snippet_id`. The snippet's prompt is used as the initial task prompt, and any variable values you supply are substituted before the agent receives the instruction.
+
+```json
+{
+  "title": "Write tests for AuthService",
+  "repoId": "repo_xyz",
+  "task_source": "snippet",
+  "snippet_id": "snp_abc123",
+  "provider": "codex",
+  "providerProfile": "medium",
+  "baseBranch": "main",
+  "branchStrategy": "feature_branch",
+  "prompt": "Write unit tests for src/services/AuthService.ts"
+}
+```
+
+<Note>
+  When using a snippet as the task source, the `prompt` field in the request carries the final prompt that will be sent to the agent (with any variable substitution already applied by the UI). The `snippet_id` is recorded on the task for reference but the prompt content is what actually drives execution.
+</Note>
+
+Snippets also appear in the **Source** selector of the task creation form. Choosing **Snippet** as the source displays a picker listing all saved snippets. Selecting one populates the prompt field, and any defined variables appear as additional inputs.
+
+## Using Snippets in Sequences
+
+Sequences can include snippet steps that reference snippets by ID. At execution time, the sequence runner resolves the snippet's current prompt content and uses it as the step's prompt. This means you can update a snippet and every sequence that references it will automatically use the new content on the next run.
+
+```json
+{
+  "id": "step_2",
+  "type": "snippet",
+  "snippetId": "snp_abc123"
+}
+```
+
+See [Sequences](/features/sequences) for full details on building multi-step workflows.
+
+## Managing Snippets
+
+All snippet management is available from the **Snippets** section of the navigation.
+
+<CardGroup cols={2}>
+  <Card title="List" icon="list">
+    All snippets are listed with their name and last-updated timestamp.
+  </Card>
+  <Card title="Edit" icon="pen">
+    Open a snippet to update its name, prompt content, or variables. Changes take effect immediately for all future task and sequence runs that reference it.
+  </Card>
+  <Card title="Duplicate" icon="copy">
+    Create a copy of an existing snippet with the name prefixed "Copy of". Useful for creating variants without modifying the original.
+  </Card>
+  <Card title="Delete" icon="trash">
+    Remove a snippet permanently. Existing tasks that were created from the snippet are not affected — the prompt was already captured at creation time.
+  </Card>
+</CardGroup>

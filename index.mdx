@@ -1,20 +1,68 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "AgentSwarm: AI Coding Agent Orchestration"
+sidebarTitle: "Home"
+description: "AgentSwarm runs Codex and Claude AI coding agents on real Git repositories. Manage tasks, review diffs, and automate workflows from one web UI."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+AgentSwarm is a Docker-based web application for orchestrating AI coding agents against real Git repositories. Spin up Codex or Claude tasks, track their progress in real time, review proposed changes before they land, and automate task creation from GitHub events — all from a single dashboard.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get AgentSwarm running locally and create your first AI coding task in minutes.
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts">
+    Understand tasks, providers, checkpoints, sequences, and the agent lifecycle.
+  </Card>
+  <Card title="Task Management" icon="list-check" href="/features/tasks">
+    Create, run, and review build and ask tasks across your repositories.
+  </Card>
+  <Card title="GitHub Integration" icon="github" href="/integrations/github-webhooks">
+    Automate task creation from GitHub issues, pull requests, and comments.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What AgentSwarm Does
+
+AgentSwarm gives development teams a single control plane for AI-assisted coding work. Instead of running agents ad-hoc in terminals, you manage everything through a web interface backed by a Postgres + Redis stack.
+
+<CardGroup cols={3}>
+  <Card title="Run AI Agents" icon="robot">
+    Execute Codex (OpenAI) and Claude (Anthropic) in isolated Docker containers on any Git repository.
+  </Card>
+  <Card title="Review Changes" icon="code-pull-request">
+    Inspect diffs and approve or reject checkpoint proposals before any code is committed.
+  </Card>
+  <Card title="Automate Workflows" icon="bolt">
+    Trigger tasks automatically from GitHub webhooks using label filters and automation rules.
+  </Card>
+  <Card title="Prompt Sequences" icon="layer-group">
+    Chain multi-step prompts with variable substitution into reusable sequence templates.
+  </Card>
+  <Card title="Browser Terminal" icon="terminal">
+    Open an interactive terminal into any task workspace directly from the UI.
+  </Card>
+  <Card title="Postflight Checks" icon="shield-check">
+    Run automated tests or scripts after builds with `.agentswarm/postflight.yml`.
+  </Card>
+</CardGroup>
+
+## Get Started
+
+<Steps>
+  <Step title="Install and initialize">
+    Clone the repository, copy `.env.example` to `.env`, and run `./agentswarm.sh init` to build runtime images and start the stack.
+  </Step>
+  <Step title="Configure providers">
+    Open **Settings** in the UI and add your OpenAI and/or Anthropic API credentials.
+  </Step>
+  <Step title="Connect a repository">
+    Go to **Repositories** and add the Git repository you want agents to work against.
+  </Step>
+  <Step title="Create a task">
+    Open **Tasks**, click **New Task**, write a prompt, choose a provider, and run it.
+  </Step>
+</Steps>
+
+<Note>
+  The default admin credentials come from `.env.example`. Change them before exposing AgentSwarm outside a local development environment.
+</Note>

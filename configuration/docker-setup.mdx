@@ -1,0 +1,153 @@
+---
+title: "Docker Deployment and Runtime Image Setup"
+sidebarTitle: "Docker Setup"
+description: "Deploy AgentSwarm with Docker Compose. Build agent runtime and interactive terminal images, configure volume mounts, and understand the container architecture."
+---
+
+AgentSwarm is designed to run as a Docker Compose stack. The compose file brings up the core application services, while agent task runs and interactive terminals are launched as on-demand containers by the server — entirely outside the compose stack. Understanding how these two layers interact, especially around shared volumes, is critical to a correct deployment.
+
+## Container Architecture
+
+The Docker Compose stack defined in `docker-compose.yml` comprises four long-running services:
+
+<CardGroup cols={2}>
+  <Card title="proxy" icon="shield">
+    **nginx:1.27-alpine** — Reverse proxy that listens on `PUBLIC_PORT` (default `3217`). Routes `/api/*` requests to the server and all other traffic to the Next.js web app.
+  </Card>
+  <Card title="web" icon="browser">
+    **Next.js web app** — The AgentSwarm frontend. Built from `apps/web/Dockerfile`. Receives `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SOCKET_URL` as build arguments.
+  </Card>
+  <Card title="server" icon="server">
+    **Fastify API server** — Backend API, orchestration engine, task queue consumer, and webhook handler. Built from `apps/server/Dockerfile`. Mounts the Docker socket so it can launch agent containers on demand.
+  </Card>
+  <Card title="postgres + redis" icon="database">
+    **postgres:16-alpine** and **redis:7-alpine** — Postgres stores all durable application data. Redis handles sessions, task queues, webhook delivery, and real-time pub/sub events.
+  </Card>
+</CardGroup>
+
+When a task is executed, the server launches a **separate, on-demand agent runtime container** outside the compose stack using the Docker socket. These containers are ephemeral — they run the Codex or Claude agent, write results to the shared workspace volume, and exit. Interactive browser terminal sessions follow the same pattern using their own images.
+
+## Building Runtime Images
+
+The runtime and terminal images are built locally and are not pulled from a registry. They must be built before the stack will function correctly.
+
+Run either of the following commands from the repository root:
+
+```bash
+# First-time setup: build images, rebuild compose images, and start the stack
+./agentswarm.sh init
+
+# Rebuild everything after pulling new code
+./agentswarm.sh rebuild
+```
+
+Both commands build the following images:
+
+| Image | Source | Purpose |
+|---|---|---|
+| `agentswarm-agent-runtime-codex:latest` | `agent-runtime-codex/Dockerfile` | Automated Codex task runs |
+| `agentswarm-agent-runtime-claude:latest` | `agent-runtime-claude/Dockerfile` | Automated Claude task runs |
+| `local/git-terminal:latest` | `tools/codex-web-terminal/Dockerfile.git` | Restricted Alpine Git terminal |
+| `local/codex-interactive:latest` | `tools/codex-web-terminal/Dockerfile.codex` | In-browser interactive Codex terminal |
+| `local/claude-interactive:latest` | `tools/codex-web-terminal/Dockerfile.claude` | In-browser interactive Claude terminal |
+
+<Tip>
+  If you change an agent runtime or terminal image, run `./agentswarm.sh rebuild` to pick up the new build. The compose `server` and `web` images are also rebuilt in the same step.
+</Tip>
+
+## Volume Mounts
+
+The most important volume in the entire deployment is the task workspace mount.
+
+**How it works:** The server container stores task workspaces under the in-container path `/task-workspaces`. When the server launches an agent container for a task run, it passes a bind-mount argument like `-v <hostPath>:/task-workspaces` so the agent can read and write the same workspace directory. If the host path seen by the server differs from the host path passed to the agent container, the two processes are working on different directories — changes made by the agent are invisible to the server.
+
+```yaml
+# From docker-compose.yml — server service volumes:
+- ${TASK_WORKSPACE_HOST_ROOT:-${PWD}/task-workspaces}:/task-workspaces
+```
+
+The server reads `TASK_WORKSPACE_HOST_ROOT` from the environment and passes that same value to every `docker run` call it makes. The compose default is `${PWD}/task-workspaces`, which resolves to an absolute path at compose startup time.
+
+<Warning>
+  Set `TASK_WORKSPACE_HOST_ROOT` explicitly in `.env` to a stable absolute path (e.g. `/opt/agentswarm/task-workspaces`). Do not rely on the `${PWD}` default in production — if the compose stack is ever started from a different working directory, workspaces will be created in a new location and all existing task data will appear missing.
+</Warning>
+
+Other notable mounts in the server service:
+
+| Mount | Purpose |
+|---|---|
+| `/var/run/docker.sock:/var/run/docker.sock` | Allows the server to launch agent and terminal containers |
+| `${LOCAL_PLANS_HOST_ROOT:-${PWD}/local-plans}:/plans` | Local plan storage for task planning files |
+| `repo_cache:/repo-cache` (named volume) | Git repository cache shared across task runs |
+| `runtime_payloads:/runtime-payloads` (named volume) | Runtime payload files injected into agent containers |
+| `server_secrets:/secrets` (named volume) | Persistent secret key storage for the server |
+
+## Network Configuration
+
+nginx is the only service that binds a host port. All internal service communication uses the Docker Compose default bridge network:
+
+- Browser → `http://localhost:${PUBLIC_PORT}` → **nginx**
+- nginx `/api/*` → **server** (port 4000, internal only)
+- nginx `/*` → **web** (port 3217, internal only)
+- server → **postgres** (via `DATABASE_URL`)
+- server → **redis** (via `REDIS_URL=redis://redis:6379`)
+
+To change the public port, set `PUBLIC_PORT` in `.env` before starting the stack:
+
+```bash
+PUBLIC_PORT=8080 ./agentswarm.sh start
+```
+
+Also update `CORS_ORIGIN` to match the new port, or browser requests will be rejected.
+
+## Common Commands
+
+| Command | Description |
+|---|---|
+| `./agentswarm.sh init` | Build all runtime and compose images, then start the stack. Use on first checkout. |
+| `./agentswarm.sh start` | Start the Docker Compose stack in the background. |
+| `./agentswarm.sh stop` | Stop the Docker Compose stack. |
+| `./agentswarm.sh rebuild` | Rebuild all runtime and compose images, then restart the stack. |
+| `./scripts/harness/start.sh` | Start the stack and block until the health endpoint returns `200`. Used in CI. |
+
+## Health Check
+
+The API server exposes a health endpoint. Use it to confirm the stack is up before running tests or automation:
+
+```bash
+curl -fsS http://localhost:3217/api/health
+```
+
+A `200` response indicates the server is reachable. The harness start script (`./scripts/harness/start.sh`) polls this endpoint and waits for it to become healthy before returning.
+
+## Resetting the Database
+
+To wipe all data and start fresh — for example, to clean up a development environment or reset a test harness — run:
+
+```bash
+HARNESS_DB_RESET=1 ./scripts/harness/setup.sh
+```
+
+This drops and recreates the Postgres database, then re-runs migrations. All tasks, users, repositories, snippets, and settings are permanently deleted. Task workspace files on disk are **not** removed; delete the `task-workspaces/` directory separately if needed.
+
+## Production Considerations
+
+Before deploying AgentSwarm in a non-local environment, review the following checklist:
+
+<Steps>
+  <Step title="Set an absolute TASK_WORKSPACE_HOST_ROOT">
+    Add `TASK_WORKSPACE_HOST_ROOT=/your/absolute/path/task-workspaces` to `.env`. This must be consistent across all deployments and restarts.
+  </Step>
+  <Step title="Change bootstrap admin credentials">
+    Set `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_NAME`, and `DEFAULT_ADMIN_PASSWORD` to non-default values before the first startup, or change the admin password immediately after first login.
+  </Step>
+  <Step title="Update CORS_ORIGIN">
+    Set `CORS_ORIGIN` to the exact URL your users will use to access AgentSwarm (including protocol and port). Mismatched origins will cause API requests to be rejected.
+  </Step>
+  <Step title="Consider disabling POSTGRES_AUTO_MIGRATE">
+    In environments where you manage database migrations separately, set `POSTGRES_AUTO_MIGRATE=false` to prevent the server from running migrations on every startup.
+  </Step>
+  <Step title="Leave DOCKER_SOCKET_ACCESS_ENABLED=false">
+    Do not enable Docker socket access in agent containers unless you have a specific, understood requirement. See the [Environment Variables](/configuration/environment-variables#docker-socket-access) reference for details.
+  </Step>
+</Steps>

@@ -1,0 +1,121 @@
+---
+title: "AgentSwarm: Multi-Agent AI Coding Orchestration"
+sidebarTitle: "Introduction"
+description: "AgentSwarm orchestrates Codex and Claude AI agents on real Git repositories. Run, track, and review AI coding tasks from a single web dashboard."
+---
+
+AgentSwarm is a Docker-based web application for running and managing AI coding work on real Git repositories. It gives developers and teams one place to create tasks, dispatch Codex or Claude agents into isolated workspaces, inspect streaming logs and diffs, review proposed changes before they land on a branch, and continue work in an interactive browser terminal — all without losing visibility into Git state, task history, or repository changes.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Tasks" icon="list-check">
+    Create **Build** tasks that produce code changes or **Ask** tasks for read-only Q&A. Start from a blank prompt, a reusable snippet, a GitHub issue, or a pull request.
+  </Card>
+  <Card title="Agents" icon="robot">
+    Run Codex (OpenAI) and Claude (Anthropic) agents in isolated Docker runtime containers. Stream logs, messages, and run status in real time from the task detail page.
+  </Card>
+  <Card title="Repositories" icon="code-branch">
+    Connect any Git repository. Configure per-repository environment variables and secrets that are injected into agent runtimes at execution time.
+  </Card>
+  <Card title="Review Flow" icon="magnifying-glass">
+    Every build that produces changes creates a **checkpoint** — a reviewable change proposal. Apply, reject, or revert before pushing or merging to keep full control over what lands on a branch.
+  </Card>
+  <Card title="GitHub Integration" icon="github">
+    Attach a webhook to any repository and define automation rules that create tasks automatically from `issue_opened`, `pull_request_opened`, and comment or reaction triggers.
+  </Card>
+  <Card title="Sequences" icon="arrow-right-arrow-left">
+    Chain multiple prompts into a **Sequence** with two execution modes: automatically apply changes between steps, or pause for human approval before continuing.
+  </Card>
+  <Card title="Postflight" icon="flag-checkered">
+    Define `.agentswarm/postflight.yml` in any repository to run automated checks (tests, screenshot captures, linters) after a successful build task and before the final checkpoint is created.
+  </Card>
+  <Card title="MCP Servers" icon="plug">
+    Extend agent capabilities by connecting **Model Context Protocol (MCP)** servers over `stdio` or `http` transports, giving agents access to external tools and data sources.
+  </Card>
+</CardGroup>
+
+## Supported AI Providers
+
+AgentSwarm supports two AI providers. Provider credentials are configured once in **Settings** and are never returned by the API after saving.
+
+### Codex (OpenAI)
+
+Codex tasks run inside the `agentswarm-agent-runtime-codex` Docker image. Choose a model and reasoning effort level per task or set global defaults in Settings.
+
+| Model | Value |
+|-------|-------|
+| GPT-5.4 | `gpt-5.4` |
+| o3 | `o3` |
+| o4-mini | `o4-mini` |
+| o3-mini | `o3-mini` |
+| GPT-4.1 | `gpt-4.1` |
+| GPT-4o | `gpt-4o` |
+
+**Effort levels:** `low` · `medium` · `high`
+
+The default model is `gpt-5.4`. Effort maps to OpenAI's native reasoning effort parameter.
+
+### Claude (Anthropic)
+
+Claude tasks run inside the `agentswarm-agent-runtime-claude` Docker image. Claude supports an additional `max` effort level that leaves the thinking budget unconstrained.
+
+| Model | Value |
+|-------|-------|
+| Claude Opus 4 | `claude-opus-4-5` |
+| Claude Sonnet 4.5 | `claude-sonnet-4-5` |
+| Claude Sonnet 4 | `claude-sonnet-4` |
+| Claude Haiku 3.5 | `claude-haiku-3-5` |
+
+**Effort levels:** `low` · `medium` · `high` · `max`
+
+The default model is `claude-sonnet-4-5`. Effort profiles map to thinking budgets on models that support extended thinking; `max` leaves the budget unset.
+
+## Architecture Overview
+
+AgentSwarm is a monorepo with a clear separation between the web application, the API server, the shared type layer, and the agent runtimes.
+
+```text
+.
+├── apps/
+│   ├── server/           # Fastify API, orchestration, stores, routes, schedulers
+│   └── web/              # Next.js web application
+├── packages/
+│   └── shared-types/     # Shared TypeScript types used by server and web
+├── agent-runtime-codex/  # Automated Codex task runtime (Docker image)
+├── agent-runtime-claude/ # Automated Claude task runtime (Docker image)
+├── tools/                # Browser terminal and interactive runtime tooling
+├── docker-compose.yml    # Local Docker stack
+└── agentswarm.sh         # Main stack helper script
+```
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| `apps/server` | Fastify (Node.js) | REST API, task orchestration, queue workers, Git operations, webhook delivery |
+| `apps/web` | Next.js | Browser dashboard, real-time task UI, interactive terminal |
+| `packages/shared-types` | TypeScript | Canonical type definitions shared between server and web |
+| `agent-runtime-codex` | Docker | Isolated execution environment for automated Codex tasks |
+| `agent-runtime-claude` | Docker | Isolated execution environment for automated Claude tasks |
+
+Durable data is stored in **Postgres**. **Redis** handles sessions, task queues, webhook jobs, and real-time pub/sub. Nginx proxies the web app and API on a single public port (default `3217`).
+
+## Requirements
+
+| Requirement | Notes |
+|-------------|-------|
+| Docker | Required for the main app stack and agent runtime containers. |
+| Docker Compose | `docker compose` is preferred; `docker-compose` is also supported. |
+| Bash | Required by the helper and harness scripts. |
+| Node.js 20+ and npm | Required for local development, checks, tests, and builds. |
+| Python 3 | Required when installing local npm dependencies because native modules such as `node-pty` may build from source. |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, run `./agentswarm.sh init`, and create your first AI coding task in under 10 minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Learn about tasks, providers, checkpoints, sequences, snippets, and repository automation rules.
+  </Card>
+</CardGroup>

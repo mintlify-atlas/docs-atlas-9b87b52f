@@ -1,0 +1,207 @@
+---
+title: "Managing AI Coding Tasks in AgentSwarm"
+sidebarTitle: "Tasks"
+description: "Create, run, and review build and ask tasks. Understand task types, status lifecycle, checkpoint review, and Git operations like push and merge."
+---
+
+Tasks are the core unit of work in AgentSwarm. Every time you want an AI agent to write code, inspect a repository, answer a question, or run a multi-step workflow, you create a task. Each task is tied to a Git repository, runs inside an isolated Docker workspace, and produces a structured history of messages, logs, runs, diffs, and checkpoints that you can review and act on.
+
+## Task Types
+
+AgentSwarm supports two task types that map directly to the kind of work you want the agent to do.
+
+<CardGroup cols={2}>
+  <Card title="Build" icon="hammer">
+    The agent makes code changes in the task workspace. Changes are tracked as a diff and surfaced in a checkpoint for your review before anything is committed or pushed.
+  </Card>
+  <Card title="Ask" icon="message-question">
+    The agent inspects the codebase and answers your question without modifying any files. The answer appears as the task result and no checkpoint is created.
+  </Card>
+</CardGroup>
+
+## Creating a Task
+
+Tasks can be created from several starting points. Choose the source that best fits your workflow.
+
+<CardGroup cols={2}>
+  <Card title="Blank" icon="file-plus">
+    Write a prompt from scratch.
+  </Card>
+  <Card title="Snippet" icon="puzzle-piece">
+    Start from a saved reusable prompt template.
+  </Card>
+  <Card title="Sequence" icon="list-ol">
+    Run a multi-step sequence of prompts automatically.
+  </Card>
+  <Card title="GitHub Issue" icon="github">
+    Import an issue to auto-populate the title and prompt from issue content and comments.
+  </Card>
+  <Card title="GitHub Pull Request" icon="code-pull-request">
+    Import a pull request to create a review or continuation task.
+  </Card>
+</CardGroup>
+
+### Key Fields
+
+The following fields are accepted when creating a task via `POST /tasks`.
+
+<ParamField body="title" type="string" required>
+  Short display name for the task. Used in the task list, board, and history.
+</ParamField>
+
+<ParamField body="repoId" type="string" required>
+  The ID of the repository this task should operate on.
+</ParamField>
+
+<ParamField body="prompt" type="string" required>
+  The instruction given to the agent. Required for blank and snippet sources; provided automatically for sequence sources.
+</ParamField>
+
+<ParamField body="taskType" type="string" default="build">
+  Either `build` (agent makes code changes) or `ask` (agent inspects and answers without changing code).
+</ParamField>
+
+<ParamField body="provider" type="string" default="from settings">
+  The agent engine to use: `codex` or `claude`. Falls back to the system default if not specified.
+</ParamField>
+
+<ParamField body="providerProfile" type="string" default="from settings">
+  Reasoning effort level: `low`, `medium`, `high`, or `max`. `max` is Claude-only. Codex supports `low`, `medium`, and `high`.
+</ParamField>
+
+<ParamField body="modelOverride" type="string">
+  Override the default model for this task. For Codex: `gpt-5.4`, `o3`, `o4-mini`, `o3-mini`, `gpt-4.1`, `gpt-4o`. For Claude: `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-sonnet-4`, `claude-haiku-3-5`.
+</ParamField>
+
+<ParamField body="baseBranch" type="string" default="repo default branch">
+  The branch the agent workspace is checked out from.
+</ParamField>
+
+<ParamField body="branchStrategy" type="string" default="feature_branch">
+  How the task manages Git branches:
+  - `feature_branch` — creates a new dedicated branch per task.
+  - `work_on_branch` — works directly on the `baseBranch`.
+</ParamField>
+
+<ParamField body="task_source" type="string" default="blank">
+  Declares the source type: `blank`, `snippet`, or `sequence`. When using `snippet`, also provide `snippet_id`. When using `sequence`, also provide `sequence_id`.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Internal notes for the task, not sent to the agent. Maximum 40,000 characters.
+</ParamField>
+
+<ParamField body="deadline" type="string">
+  Optional ISO 8601 deadline date for tracking purposes.
+</ParamField>
+
+## Task Status Lifecycle
+
+Each task moves through a set of statuses that reflect where it is in the build or ask pipeline. The table below describes every possible status.
+
+| Status | Label | Description |
+|---|---|---|
+| `scheduled` | Scheduled | Task is saved and scheduled to run at a future time. |
+| `build_queued` | Build Queued | Task is waiting in the build queue for an available agent. |
+| `preparing_workspace` | Preparing Workspace | Agent is cloning or checking out the repository workspace. |
+| `building` | Building | Agent is actively making code changes. |
+| `ask_queued` | Ask Queued | Task is waiting in the ask queue for an available agent. |
+| `asking` | Answering | Agent is actively generating an answer. |
+| `open` | Open | Task is idle and ready for action. |
+| `in_progress` | In Progress | Task has been manually moved to the In Progress column. |
+| `in_review` | In Review | Task result is ready for human review (manual or ask result). |
+| `awaiting_review` | Awaiting Review | Agent produced changes and a checkpoint is pending approval. |
+| `done` | Done | Task is complete but not yet merged or accepted. |
+| `completed` | Completed | Internal state after a successful build run, before workflow resolution. |
+| `answered` | Answered | Internal state after a successful ask run, before workflow resolution. |
+| `accepted` | Accepted | Task result was accepted and published. |
+| `archived` | Archived | Task is archived and read-only. Archived tasks cannot be modified. |
+| `cancelled` | Cancelled | Task was cancelled before it completed. |
+| `failed` | Failed | Task run encountered an error. |
+
+<Tip>
+  The **workflow status** (`backlog`, `ready`, `in_progress`, `review`, `done`, `archived`) is the simplified view used on the task board. The full `status` field above provides the precise execution state.
+</Tip>
+
+## The Review Flow
+
+When an agent completes a build run and produces file changes, AgentSwarm creates a **checkpoint** (also called a change proposal). The task moves to `awaiting_review` and you can inspect the diff before deciding what to do.
+
+<Steps>
+  <Step title="Review the diff">
+    Open the task detail page. The **Changes** panel shows the unified diff between the workspace base ref and the agent's changes.
+  </Step>
+  <Step title="Choose an action">
+    Three actions are available for each checkpoint:
+
+    - **Apply** — commits the agent's changes to the workspace and moves the task forward. You may optionally provide a custom commit message.
+    - **Reject** — discards the proposed changes and reverts the workspace to its pre-run state. Any files that were already present before the agent ran are preserved.
+    - **Revert** — rolls back a previously applied checkpoint using the stored diff. Available after a checkpoint has been applied.
+
+    You can also revert a single file from a checkpoint using the per-file revert endpoint.
+  </Step>
+</Steps>
+
+<Note>
+  Checkpoint actions (apply, reject, revert) are blocked while a task is queued or actively running. The error message will indicate the current status preventing the action.
+</Note>
+
+## Git Operations
+
+Once the agent has produced and you have applied changes, AgentSwarm provides Git operations to move the work into your remote repository.
+
+<AccordionGroup>
+  <Accordion title="Pull Branch">
+    Pulls the latest commits from the remote for the task's branch. Use this to sync the workspace with remote changes before pushing or merging. Available whenever the task is not actively running and not archived.
+  </Accordion>
+
+  <Accordion title="Push Branch">
+    Pushes the task's local branch commits to the remote repository. You can optionally include a commit message for any uncommitted changes in the workspace. A push preview endpoint (`GET /tasks/:id/push-preview`) is available to inspect staged changes, the diff stat, and a suggested commit message before committing.
+  </Accordion>
+
+  <Accordion title="Merge Branch">
+    Merges the task's feature branch into a target branch inside the task workspace and then pushes. Only available for `feature_branch` tasks that have a named branch. Before merging, use the merge preview endpoint (`GET /tasks/:id/merge-preview?targetBranch=<branch>`) to check mergeability and see a suggested commit message. After a successful merge the task is automatically archived.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Merge is only available for tasks using the `feature_branch` branch strategy. Tasks using `work_on_branch` should push directly — they do not have a separate feature branch to merge.
+</Note>
+
+## Task Board
+
+The task board at `/tasks/board` provides a Kanban view of all your tasks.
+
+- **Backlog** — saved task drafts. A draft stores the same fields as the task creation form so you can return and launch the task later.
+- **Ready** — tasks that are open and idle, waiting for their next action.
+- **In Progress** — tasks actively being worked on.
+- **Review** — tasks with a pending checkpoint or a result awaiting review.
+- **Done** — tasks that have been completed.
+
+Opening a draft from the Backlog column reopens the creation form pre-populated with the saved definition, so you can review or adjust before creating the runnable task.
+
+## AI-Assisted Prompts
+
+The `POST /tasks/prompt-magic` endpoint uses OpenAI to enhance and expand a rough prompt into a more detailed, actionable instruction. Submit your initial prompt text and receive an improved version you can use as the task prompt.
+
+```json
+{
+  "prompt": "Add dark mode support"
+}
+```
+
+<Note>
+  Prompt magic requires an OpenAI API key to be configured in Settings. The model and template used are configurable in the system settings under `taskPromptMagicModel` and `taskPromptMagicTemplate`.
+</Note>
+
+## Prompt Attachments
+
+You can attach images or files to a task prompt or to follow-up messages. Attachments are stored server-side and referenced by ID.
+
+| Limit | Value |
+|---|---|
+| Maximum attachments per message | 6 |
+| Maximum size per attachment | 6 MB |
+| Maximum total size across all attachments | 20 MB |
+
+Each attachment requires a `name`, a `mimeType`, and the file content encoded as a base64 string in `dataBase64`.

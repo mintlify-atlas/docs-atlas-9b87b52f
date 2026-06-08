@@ -1,0 +1,124 @@
+---
+title: "Postflight Checks: Run Tests After Agent Builds"
+sidebarTitle: "Postflight Checks"
+description: "Define per-repository postflight steps in .agentswarm/postflight.yml to run tests or scripts automatically after a successful agent build task."
+---
+
+Postflight checks let you run automated steps — such as a test suite, a linter, or a screenshot comparison — immediately after an agent completes a successful build task and before AgentSwarm creates the final checkpoint. If a postflight step fails and `on_failure` is set to `fail_task`, the task is marked as failed and no checkpoint is proposed, keeping your review queue clean. This makes it easy to enforce quality gates without adding manual steps to your workflow.
+
+## Configuration File
+
+Postflight checks are configured in a YAML file committed directly to the target repository:
+
+```
+.agentswarm/postflight.yml
+```
+
+AgentSwarm reads this file from the task workspace after the agent finishes. No additional server-side configuration is required — placing the file in the repository is enough to activate it.
+
+## Full Schema
+
+<ParamField body="version" type="integer" required>
+  Must be `1`. This is the only supported schema version.
+</ParamField>
+
+<ParamField body="enabled" type="boolean">
+  When `false`, postflight checks are skipped entirely for this repository even if the file is present. Defaults to `true`.
+</ParamField>
+
+<ParamField body="when" type="object">
+  Restricts which tasks trigger postflight. When omitted or empty, postflight runs for all build tasks.
+
+  <Expandable title="when fields">
+    <ParamField body="when.task_types" type="string[]">
+      Array of task types that should trigger postflight. Supported values are `build` and `ask`. When omitted, all task types match.
+    </ParamField>
+    <ParamField body="when.providers" type="string[]">
+      Array of agent providers that should trigger postflight. Supported values are `codex` and `claude`. When omitted, all providers match.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="runner" type="object" required>
+  Defines the Docker environment in which postflight steps execute.
+
+  <Expandable title="runner fields">
+    <ParamField body="runner.image" type="string" required>
+      The Docker image used to run the steps. Any publicly accessible or pre-pulled image is supported. The runner container has full read/write access to the task workspace files.
+    </ParamField>
+    <ParamField body="runner.timeout_seconds" type="integer">
+      Maximum number of seconds the entire postflight run is allowed to take before it is forcibly terminated. Defaults to `1800` (30 minutes).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="steps" type="array" required>
+  An ordered list of shell commands to execute inside the runner container. At least one step is required. Each step is an object with a single `run` key.
+
+  <Expandable title="step fields">
+    <ParamField body="steps[].run" type="string" required>
+      The shell command to execute. The command must be a non-empty string.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="on_failure" type="string">
+  What to do when one or more steps exit with a non-zero status.
+
+  - `fail_task` — marks the task as failed and halts execution. No checkpoint is created. This is the default.
+  - `ignore` — logs the failure but continues and allows the task to proceed to the checkpoint stage.
+</ParamField>
+
+## Complete Example
+
+The following example runs Playwright mobile screenshot tests after every successful Codex or Claude build task:
+
+```yaml
+version: 1
+enabled: true
+
+when:
+  task_types: ["build"]
+  providers: ["codex", "claude"]
+
+runner:
+  image: "mcr.microsoft.com/playwright:v1.52.0-jammy"
+  timeout_seconds: 1800
+
+steps:
+  - run: "npm ci"
+  - run: "npx playwright test tests/mobile-screenshots.spec.ts --project=mobile-web --update-snapshots"
+
+on_failure: "fail_task"
+```
+
+## Runner Image
+
+The `runner.image` field accepts any Docker image that is accessible on the host running AgentSwarm. The runner container is started with the task workspace mounted, so all files created or modified by the agent are available to your steps. You can use language-specific images, browser testing images, or any custom image that contains the tools your test suite needs.
+
+<Tip>
+  Use a pinned image tag (e.g. `mcr.microsoft.com/playwright:v1.52.0-jammy`) rather than `latest` to ensure consistent postflight behaviour across runs.
+</Tip>
+
+## Failure Modes
+
+<CardGroup cols={2}>
+  <Card title="fail_task" icon="circle-xmark">
+    When any step exits with a non-zero status, the task is marked as **failed**. No checkpoint is proposed for review. The agent's changes remain in the workspace but must be re-run or manually inspected. This is the recommended default for enforcing quality gates.
+  </Card>
+  <Card title="ignore" icon="circle-check">
+    Step failures are recorded in the task logs but do not affect the task outcome. The task proceeds to the normal checkpoint review flow. Use this when postflight is informational only and failures should not block the workflow.
+  </Card>
+</CardGroup>
+
+## Important Notes
+
+<Warning>
+  **Tabs are not supported** in `postflight.yml`. Use spaces for all indentation. AgentSwarm's built-in YAML parser will throw an error and skip postflight if it encounters any tab characters. Indentation must also use multiples of 2 spaces.
+</Warning>
+
+<Note>
+  Only `version: 1` is supported. Including any other value for `version` will cause postflight parsing to fail and the check will be skipped.
+</Note>
+
+Postflight only runs after a **successful** agent build. It does not run if the agent task itself fails, is cancelled, or is an `ask` task (unless you explicitly include `ask` in `when.task_types`).

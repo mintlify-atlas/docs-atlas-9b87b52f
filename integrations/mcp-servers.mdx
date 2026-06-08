@@ -1,0 +1,149 @@
+---
+title: "Extend Agents with MCP Server Configuration"
+sidebarTitle: "MCP Servers"
+description: "Configure Model Context Protocol (MCP) servers to extend Codex and Claude agent capabilities with custom tools, data sources, and external integrations."
+---
+
+Model Context Protocol (MCP) servers expose tools, resources, and prompts that AI agents can call at runtime, extending what the agent is capable of doing beyond its built-in abilities. AgentSwarm supports MCP server configuration at the system level and automatically serializes enabled servers into the format each agent provider expects — TOML for Codex and JSON for Claude — before injecting them into the agent runtime container. This means you configure MCP servers once in AgentSwarm and both providers pick them up automatically.
+
+## MCP Server Types
+
+AgentSwarm supports two transport mechanisms, drawn directly from the `McpServerTransport` type in shared-types:
+
+<CardGroup cols={2}>
+  <Card title="stdio" icon="terminal">
+    Communicates with the MCP server by launching a local process. The agent runtime starts the command and exchanges MCP messages over standard input/output. Suitable for CLI-based servers distributed as npm packages, Python scripts, or binaries.
+  </Card>
+  <Card title="http" icon="globe">
+    Communicates with the MCP server over HTTP. The agent runtime sends requests to the configured URL. Supports optional bearer token authentication via an environment variable reference.
+  </Card>
+</CardGroup>
+
+## Configuration
+
+MCP servers are configured globally in **Settings** (not per-repository). The `mcpServers` array in `UpdateSettingsInput` holds the list of server configurations. All enabled servers in this list are passed to every agent task regardless of which repository or provider is used.
+
+### McpServerConfig Fields
+
+<ParamField body="name" type="string" required>
+  A unique identifier for this server. Used as the key in the serialized config that is passed to the agent. Must be a valid identifier string (no spaces).
+</ParamField>
+
+<ParamField body="enabled" type="boolean" required>
+  When `true`, this server is included in the config passed to agents. When `false`, the server definition is stored but skipped entirely.
+</ParamField>
+
+<ParamField body="transport" type="string" required>
+  The connection mechanism: `stdio` or `http`.
+</ParamField>
+
+<ParamField body="command" type="string">
+  The executable to launch. Required when `transport` is `stdio`. For example: `npx`, `python`, or an absolute binary path.
+</ParamField>
+
+<ParamField body="args" type="string[]">
+  Arguments passed to the command. Used with `stdio` transport. For example: `["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]`.
+</ParamField>
+
+<ParamField body="url" type="string">
+  The HTTP endpoint for the MCP server. Required when `transport` is `http`. For example: `https://mcp.example.com/v1`.
+</ParamField>
+
+<ParamField body="bearerTokenEnvVar" type="string">
+  The **name** of an environment variable (not the value itself) that holds the bearer token for HTTP authentication. At runtime, AgentSwarm reads the value of this environment variable and injects it into the agent container. For example: `MY_MCP_TOKEN`.
+</ParamField>
+
+## Codex MCP Config Format
+
+For Codex tasks, AgentSwarm serializes enabled servers to a TOML file that Codex reads at startup. Each server becomes a `[mcp_servers.<name>]` section.
+
+**stdio server:**
+
+```toml
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+```
+
+**http server with bearer token:**
+
+```toml
+[mcp_servers.my-api]
+url = "https://mcp.example.com/v1"
+bearer_token_env_var = "MY_MCP_TOKEN"
+```
+
+When `args` is empty, the `args` line is omitted. When `bearerTokenEnvVar` is not set on an HTTP server, the `bearer_token_env_var` line is omitted.
+
+## Claude MCP Config Format
+
+For Claude tasks, AgentSwarm serializes enabled servers to a JSON object under a `mcpServers` key. Claude's format uses a `type` field to distinguish transports and nests bearer tokens inside a `headers` object.
+
+**stdio server:**
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "env": {}
+    }
+  }
+}
+```
+
+**http server with bearer token:**
+
+```json
+{
+  "mcpServers": {
+    "my-api": {
+      "type": "http",
+      "url": "https://mcp.example.com/v1",
+      "headers": {
+        "Authorization": "Bearer ${MY_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+The bearer token value is injected at runtime by the agent container using the environment variable whose name you supplied in `bearerTokenEnvVar`.
+
+## Example: stdio Server
+
+The following server configuration launches an MCP filesystem server via `npx`:
+
+```json
+{
+  "name": "filesystem",
+  "enabled": true,
+  "transport": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+}
+```
+
+## Example: HTTP Server with Bearer Token
+
+The following server configuration connects to a remote MCP API and authenticates with a bearer token stored in the `MY_MCP_TOKEN` environment variable on the AgentSwarm host:
+
+```json
+{
+  "name": "my-api",
+  "enabled": true,
+  "transport": "http",
+  "url": "https://mcp.example.com/v1",
+  "bearerTokenEnvVar": "MY_MCP_TOKEN"
+}
+```
+
+<Warning>
+  `bearerTokenEnvVar` must be the **name** of the environment variable, not the token value itself. AgentSwarm reads the variable from the server process environment at task start time and passes it into the agent container. If the named variable is not set or is empty, the bearer token will be missing at runtime.
+</Warning>
+
+<Note>
+  Only servers with `enabled: true` are serialized and passed to agents. Disabled servers are preserved in the settings store so they can be re-enabled later, but they have no effect on running tasks.
+</Note>

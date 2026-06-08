@@ -1,0 +1,182 @@
+---
+title: "AgentSwarm Architecture: Monorepo and Runtime Design"
+sidebarTitle: "Architecture"
+description: "Explore the AgentSwarm monorepo structure, service boundaries, data flow between server and runtime containers, and real-time event system."
+---
+
+AgentSwarm is a TypeScript monorepo whose runtime shape is a Docker Compose stack. A Fastify API server orchestrates tasks, a Next.js web app provides the browser UI, isolated agent containers execute Codex and Claude work, and Redis carries the real-time event stream that keeps the UI in sync. Understanding how these pieces fit together makes it easier to navigate the codebase, debug problems, and contribute safely.
+
+## Monorepo Structure
+
+The repository is organised as an npm workspaces monorepo. The top-level layout is:
+
+```text
+.
+├── apps/
+│   ├── server/          # Fastify API, task orchestration, stores, routes, schedulers
+│   └── web/             # Next.js web app
+├── packages/
+│   └── shared-types/    # Shared TypeScript types used by server and web
+├── agent-runtime-codex/ # Automated Codex task runtime container
+├── agent-runtime-claude/# Automated Claude task runtime container
+├── tools/               # Supporting runtime and terminal tooling
+├── docs/                # Architecture, development, product, and quality docs
+├── scripts/harness/     # Canonical setup, check, test, and PR scripts
+├── task-workspaces/     # Runtime task workspaces — do not commit
+├── docker-compose.yml   # Local Docker stack
+└── agentswarm.sh        # Main stack helper script
+```
+
+<CardGroup cols={2}>
+  <Card title="apps/server" icon="server">
+    The Fastify backend. Handles authentication, task lifecycle, repository management, scheduling, agent spawning, GitHub webhooks, and all API routes. Runs on port 4000 inside the Docker network.
+  </Card>
+  <Card title="apps/web" icon="browser">
+    The Next.js frontend. Calls backend APIs and receives real-time updates over Socket.IO. Runs on port 3217 (dev) and communicates with the server through the nginx reverse proxy.
+  </Card>
+  <Card title="packages/shared-types" icon="package">
+    The `@agentswarm/shared-types` package. Defines all TypeScript types that cross the server/web boundary — tasks, runs, events, repositories, and more. Contains no business logic.
+  </Card>
+  <Card title="agent-runtime-codex / agent-runtime-claude" icon="robot">
+    Container images launched on-demand by the server for each task run. Each image bundles the provider CLI (Codex or Claude), Git tooling, and a runner script that streams logs and diffs back to the server.
+  </Card>
+</CardGroup>
+
+## Runtime Shape
+
+The Docker Compose stack wires together five long-running services plus the ephemeral agent containers:
+
+| Service | Image | Purpose |
+|---|---|---|
+| `proxy` | nginx | Reverse proxy. Routes `/api/*` requests to the server; all other traffic to the web app. |
+| `server` | `@agentswarm/server` | Fastify API on port 4000. Orchestrates tasks, manages stores, handles webhooks. |
+| `web` | `@agentswarm/web` | Next.js on port 3217. Serves the browser UI and connects via Socket.IO for real-time updates. |
+| `postgres` | postgres | Durable data store for tasks, repositories, users, settings, and all other application data. |
+| `redis` | redis | Sessions, task queues, webhook jobs, GitHub outbound queue, and real-time pub/sub event channel. |
+| agent containers | `agentswarm-agent-runtime-codex:latest` / `agentswarm-agent-runtime-claude:latest` | Launched on-demand by the server's `SpawnerService` for each task run. Terminated when the run completes. |
+
+The public entry point is always nginx on `PUBLIC_PORT` (default `3217`). The server and web services are not exposed directly outside the Docker network in production configurations.
+
+## Data Flow
+
+A task run follows this path from browser click to streamed output:
+
+<Steps>
+  <Step title="Task creation">
+    The user submits a task in the web UI. The web app calls `POST /api/tasks` (or a related import/draft route) on the server through the nginx `/api/*` proxy.
+  </Step>
+  <Step title="Scheduling">
+    The `SchedulerService` picks up the new task from the `taskQueueStore` (backed by Redis) and decides when to run it based on concurrency limits and provider settings.
+  </Step>
+  <Step title="Spawning">
+    The `SpawnerService` launches a new Docker container from the appropriate runtime image (`CODEX_RUNTIME_IMAGE` or `CLAUDE_RUNTIME_IMAGE`). The container is mounted with the task workspace directory so that both the server and the runtime container share the same filesystem path.
+  </Step>
+  <Step title="Execution">
+    Inside the runtime container, the agent CLI (Codex or Claude) executes the task prompt against the cloned repository. The runner script streams structured log lines and Git diffs back to the server over the shared workspace.
+  </Step>
+  <Step title="Real-time updates">
+    The server publishes `RealtimeEvent` payloads (task status changes, log lines, run updates, change proposals) to the Redis pub/sub channel. The server's Socket.IO layer subscribes to this channel and forwards events to authenticated browser clients.
+  </Step>
+  <Step title="UI update">
+    The web app receives Socket.IO events and updates the task detail page in real time — showing live logs, diffs, checkpoints, and final status without a page refresh.
+  </Step>
+</Steps>
+
+## Shared Types Package
+
+`@agentswarm/shared-types` (`packages/shared-types/`) is the single source of truth for data contracts that cross the server/web boundary. Both `apps/server` and `apps/web` depend on it as an npm workspace package:
+
+```typescript
+// Both server and web import from the package root — never by filesystem path
+import type { Task, TaskRun, RealtimeEvent } from "@agentswarm/shared-types";
+```
+
+<Warning>
+  `packages/shared-types` must never contain business logic or import from `apps/server` or `apps/web`. It is a pure type contract. Boundary checks enforce this automatically.
+</Warning>
+
+## Server Modules
+
+The server (`apps/server/src/`) is organised into focused modules:
+
+<CardGroup cols={2}>
+  <Card title="routes/" icon="route">
+    Fastify route handlers for every API surface: `auth.ts`, `tasks.ts`, `task-drafts.ts`, `repositories.ts`, `users.ts`, `roles.ts`, `settings.ts`, `snippets.ts`, `sequences.ts`, `imports.ts`, and `github-webhooks.ts`.
+  </Card>
+  <Card title="services/" icon="gear">
+    Stateful services injected into routes: `task-store.ts`, `spawner.ts`, `scheduler.ts`, `sequence-execution-service.ts`, `github-import-service.ts`, `github-outbound-service.ts`, `webhook-delivery-service.ts`, and the Postgres store factories.
+  </Card>
+  <Card title="lib/" icon="code">
+    Pure orchestration and utility logic: task start orchestration, Git operations, provider config, auth, Docker socket access, MCP config, and interactive terminal management.
+  </Card>
+  <Card title="config/env.ts" icon="settings">
+    Typed environment configuration parsed and validated with Zod at startup. All environment variables are accessed through the `env` object — never via `process.env` directly.
+  </Card>
+</CardGroup>
+
+The server entry point (`src/index.ts`) bootstraps all services in order: Fastify app → Redis clients → Postgres pool → migrations → stores → auth → routes → Socket.IO → scheduler → ready.
+
+## Real-Time Events
+
+The server publishes events to a Redis pub/sub channel. The Socket.IO server subscribes to that channel and forwards events to authenticated browser clients scoped to the resources each user can access.
+
+Events are typed as the `RealtimeEvent` union from `@agentswarm/shared-types`:
+
+| Event type | Payload | When fired |
+|---|---|---|
+| `task:created` / `task:updated` | `Task` | Task is created or its status/fields change. |
+| `task:deleted` | `{ id, repoId, ownerUserId }` | Task is deleted. |
+| `task:log` | `{ taskId, runId, line, timestamp }` | A log line arrives from a running agent container. |
+| `task:message` / `task:message_updated` | `TaskMessage` | An agent message is added or updated. |
+| `task:run_updated` | `TaskRun` | A run record changes status or metadata. |
+| `task:git_operation` | `TaskGitOperation` | A Git operation (push, merge, revert) completes. |
+| `task:change_proposal` | `TaskChangeProposal` | The agent proposes a change for review. |
+| `task:pushed` | `{ taskId, repoId, branchName, … }` | Task branch is pushed to the remote. |
+| `task:merged` | `{ taskId, repoId, sourceBranch, targetBranch, … }` | Task branch is merged. |
+| `settings:updated` | `SystemSettings` | Provider or system settings change. |
+| `repository:created` / `repository:updated` / `repository:deleted` | `Repository` | Repository record changes. |
+| `sequence:run_updated` | `SequenceRun` | A prompt sequence run progresses. |
+
+The web app listens for these events via `socket.io-client` and updates component state without requiring a page reload.
+
+## Boundary Rules
+
+Architecture boundaries are enforced mechanically by `scripts/harness/boundary-check.mjs`, which runs as part of both `check.sh` and `pr-ready.sh`.
+
+<Accordion title="Rule 1 — Web must not import server code">
+  Any file under `apps/web` importing from `apps/server` is a violation. Browser code cannot depend on backend internals.
+
+  **Fix:** Move shared logic to `packages/shared-types` or call server APIs instead.
+</Accordion>
+
+<Accordion title="Rule 2 — Server must not import web code">
+  Any file under `apps/server` importing from `apps/web` is a violation. Backend services must not depend on UI implementation details.
+
+  **Fix:** Move shared contracts to `packages/shared-types` or keep the logic in a server module.
+</Accordion>
+
+<Accordion title="Rule 3 — shared-types must not import from apps">
+  Any file under `packages/shared-types` importing from `apps/*` is a violation. The shared contract layer must remain dependency-free.
+
+  **Fix:** Remove app-specific logic from shared-types entirely.
+</Accordion>
+
+<Accordion title="Rule 4 — Apps must use the package import for shared types">
+  Importing shared types via a filesystem path (e.g. `../../packages/shared-types/src/index`) instead of the package name (`@agentswarm/shared-types`) is a violation.
+
+  **Fix:** Replace the relative path import with `import type { … } from "@agentswarm/shared-types"`.
+</Accordion>
+
+<Accordion title="Rule 5 — No deep imports from shared-types">
+  Importing via a sub-path (e.g. `@agentswarm/shared-types/some/deep/path`) is a violation. Only the root package export is public.
+
+  **Fix:** Import from `@agentswarm/shared-types` root only.
+</Accordion>
+
+Run the boundary check at any time without the full suite:
+
+```bash
+node ./scripts/harness/boundary-check.mjs
+```
+
+Every violation output includes what rule was broken, why it exists, and exactly how to fix it.

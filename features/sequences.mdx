@@ -1,0 +1,196 @@
+---
+title: "Multi-Step Prompt Sequences for Automated Workflows"
+sidebarTitle: "Sequences"
+description: "Build reusable multi-step prompt sequences with variable substitution. Run sequences with auto-apply or human approval between steps."
+---
+
+Sequences let you chain multiple agent prompts into a single automated workflow. Instead of manually sending follow-up prompts after each agent run, you define all the steps upfront, optionally add template variables to make the sequence reusable, and choose whether the agent should apply each checkpoint automatically or pause for your approval between steps. AgentSwarm then orchestrates the full run from start to finish.
+
+## Sequence Structure
+
+A sequence has a name, an execution mode, an ordered list of steps, and an optional list of variables.
+
+<ParamField body="name" type="string" required>
+  Display name for the sequence. Maximum 120 characters.
+</ParamField>
+
+<ParamField body="executionMode" type="string" default="auto_apply_changes">
+  Controls how checkpoints between steps are handled. Either `auto_apply_changes` or `approve_before_continuing`. See [Execution Modes](#execution-modes) below.
+</ParamField>
+
+<ParamField body="steps" type="array" required>
+  Ordered list of steps to execute. Minimum 1 step, maximum 100 steps. Each step is either an `inline` prompt or a reference to a saved snippet.
+</ParamField>
+
+<ParamField body="variables" type="array">
+  Template variables that can be substituted into step prompts at run time. Maximum 100 variables. See [Variables](#variables) below.
+</ParamField>
+
+## Step Types
+
+Each step in a sequence has a `type` field that determines where its prompt content comes from.
+
+<AccordionGroup>
+  <Accordion title="inline — Direct Prompt">
+    An inline step contains the prompt text directly. The `prompt` field is required and must not be empty. Maximum prompt length is 20,000 characters.
+
+    ```json
+    {
+      "id": "step_1",
+      "type": "inline",
+      "prompt": "Refactor the {{component_name}} component to use TypeScript strict mode."
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="snippet — Reference to Saved Snippet">
+    A snippet step references a saved snippet by its ID. The snippet's content is resolved at sequence execution time, so updating the snippet automatically affects all sequences that reference it. The `snippetId` field is required.
+
+    ```json
+    {
+      "id": "step_2",
+      "type": "snippet",
+      "snippetId": "snp_abc123"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Variables
+
+Variables make sequences reusable across different contexts. Define variables on the sequence and reference them in step prompts using `{{variable_name}}` syntax. When a sequence is run, the caller supplies values for each variable, which are substituted into the prompts before execution.
+
+<ParamField body="name" type="string" required>
+  Variable identifier. Must match the pattern `/^[A-Za-z_][A-Za-z0-9_]*$/`. Maximum 128 characters. Must be unique within the sequence.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Either `text` (single-line input) or `multiline` (multi-line input). `text` variables must not have a default value containing line breaks.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Human-readable label shown in the sequence run form. Maximum 200 characters.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Explanatory text shown alongside the variable input. Maximum 200 characters.
+</ParamField>
+
+<ParamField body="defaultValue" type="string">
+  Pre-filled value used when the caller does not supply a value. Maximum 2,000 characters.
+</ParamField>
+
+### Variable Syntax
+
+Reference a variable in any step prompt by wrapping its name in double curly braces:
+
+```
+Add comprehensive tests for the {{component_name}} component located at {{file_path}}.
+```
+
+At run time, `{{component_name}}` and `{{file_path}}` are replaced with the values provided by the caller.
+
+## Execution Modes
+
+<CardGroup cols={2}>
+  <Card title="auto_apply_changes" icon="play">
+    After each step's agent run completes, any pending checkpoint is applied automatically and the next step starts immediately. The full sequence runs end-to-end without human intervention.
+
+    If a checkpoint cannot be auto-applied (for example, because the task is in an unexpected state), the sequence pauses and waits for manual resolution before recovering.
+  </Card>
+  <Card title="approve_before_continuing" icon="hand">
+    After each step completes, the sequence pauses with status `waiting_for_approval`. A human must explicitly approve before the next step is allowed to run. This lets you inspect intermediate changes between steps before the agent continues.
+  </Card>
+</CardGroup>
+
+## Creating a Sequence
+
+<Steps>
+  <Step title="Open Sequences">
+    Navigate to **Sequences** in the main navigation and click **New Sequence**.
+  </Step>
+  <Step title="Set name and execution mode">
+    Give the sequence a name (up to 120 characters) and choose whether steps should auto-apply or require approval between them.
+  </Step>
+  <Step title="Add steps">
+    Add one or more steps. For each step, choose `inline` and write a prompt, or choose `snippet` and select a saved snippet. Step IDs are assigned automatically if not provided.
+  </Step>
+  <Step title="Add variables (optional)">
+    Define template variables if you want the sequence to be parameterized. Variable names must match `/^[A-Za-z_][A-Za-z0-9_]*$/`.
+  </Step>
+  <Step title="Save">
+    Click **Save**. The sequence is now available when creating tasks.
+  </Step>
+</Steps>
+
+## Running a Sequence
+
+To run a sequence, create a task with `task_source` set to `sequence` and provide the `sequence_id`. If the sequence defines variables, pass their values in `sequence_variables`.
+
+```json
+{
+  "title": "Refactor Button component",
+  "repoId": "repo_xyz",
+  "task_source": "sequence",
+  "sequence_id": "seq_abc123",
+  "provider": "claude",
+  "providerProfile": "high",
+  "baseBranch": "main",
+  "branchStrategy": "feature_branch",
+  "sequence_variables": {
+    "component_name": "Button",
+    "file_path": "src/components/Button.tsx"
+  }
+}
+```
+
+AgentSwarm creates a **sequence run** record that tracks the state of each step. You can retrieve the current run state at any time from the task detail page.
+
+### Sequence Run Statuses
+
+| Status | Description |
+|---|---|
+| `running` | A step is currently executing. |
+| `waiting_for_approval` | `approve_before_continuing` mode: paused between steps, awaiting human approval. |
+| `waiting_for_checkpoint_resolution` | Auto-apply mode: a checkpoint is pending and must be resolved before the sequence can continue. |
+| `succeeded` | All steps completed successfully. |
+| `failed` | A step failed; the sequence stopped. |
+
+## Example Sequence
+
+The following sequence adds TypeScript strict types to a component, then generates tests for it, using variables so it can be reused for any component.
+
+```json
+{
+  "name": "Type + test component",
+  "executionMode": "approve_before_continuing",
+  "variables": [
+    {
+      "name": "component_name",
+      "type": "text",
+      "title": "Component Name",
+      "description": "The name of the React component to update.",
+      "defaultValue": ""
+    },
+    {
+      "name": "file_path",
+      "type": "text",
+      "title": "File Path",
+      "description": "Repo-relative path to the component file.",
+      "defaultValue": ""
+    }
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "inline",
+      "prompt": "Update {{file_path}} to add full TypeScript strict types to the {{component_name}} component. Do not change runtime behaviour."
+    },
+    {
+      "id": "step_2",
+      "type": "inline",
+      "prompt": "Write a comprehensive Vitest test suite for the {{component_name}} component in {{file_path}}. Cover all props, edge cases, and accessibility."
+    }
+  ]
+}
+```

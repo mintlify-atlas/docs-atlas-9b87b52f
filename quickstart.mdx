@@ -1,47 +1,164 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with AgentSwarm in Minutes"
+sidebarTitle: "Quickstart"
+description: "Install AgentSwarm with Docker, connect your first repository, and run a Codex or Claude coding task in under 10 minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+AgentSwarm runs entirely in Docker, so the setup path is short: clone the repo, copy the example environment file, run a single init command, and you are ready to create your first AI coding task. The steps below walk you through everything from a fresh checkout to a running build.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+<Note>
+  You will need Docker, Docker Compose, and Bash available on your machine before starting. See the [Requirements table](/introduction#requirements) for the full list.
+</Note>
 
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Setup
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository and copy the environment file">
+    Clone AgentSwarm and create your local `.env` from the provided example:
 
     ```bash
-    npm install your-package
+    git clone git@github.com:coretracker/agentswarm.git
+    cd agentswarm
+    cp .env.example .env
+    ```
+
+    The `.env` file controls the public port, database connection, Git identity, and bootstrap admin credentials. The defaults work out of the box for local development — you do not need to edit anything to get started.
+
+    <Warning>
+      The default bootstrap admin credentials are `admin@agentswarm.local` / `admin123!`. Change `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD` in `.env` **before** exposing AgentSwarm outside a local development environment.
+    </Warning>
+  </Step>
+
+  <Step title="Initialize the Docker stack">
+    Run the `init` command to build the Codex and Claude runtime images, rebuild all Compose service images, and start the full stack in the background:
+
+    ```bash
+    ./agentswarm.sh init
+    ```
+
+    `init` is an alias for `rebuild`. It executes the following in order:
+
+    1. Builds `agentswarm-agent-runtime-codex:latest` from `agent-runtime-codex/Dockerfile`
+    2. Builds `agentswarm-agent-runtime-claude:latest` from `agent-runtime-claude/Dockerfile`
+    3. Builds the browser terminal images (`git-terminal`, `codex-interactive`, `claude-interactive`)
+    4. Runs `docker compose build --pull --no-cache` for the main app services
+    5. Starts the stack with `docker compose up -d --force-recreate`
+
+    The first run takes a few minutes while Docker pulls base images and installs dependencies. Subsequent `./agentswarm.sh start` calls are much faster.
+
+    Verify the stack is healthy:
+
+    ```bash
+    curl -fsS http://localhost:3217/api/health
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
+  <Step title="Sign in to the web UI">
+    Open your browser and navigate to:
+
+    ```text
+    http://localhost:3217/login
     ```
+
+    Sign in with the bootstrap admin credentials from your `.env`:
+
+    - **Email:** `admin@agentswarm.local` (or your custom value)
+    - **Password:** `admin123!` (or your custom value)
+
+    After signing in you will land on the Tasks board.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
-    ```
+  <Step title="Add a provider API key">
+    Before creating any tasks, AgentSwarm needs credentials for at least one AI provider.
+
+    1. Click **Settings** in the navigation.
+    2. Locate the **Credentials** section.
+    3. Paste your **OpenAI API key** (for Codex tasks) and/or your **Anthropic API key** (for Claude tasks).
+    4. Click **Save**.
+
+    Credentials are write-only from the UI — they are never returned by the API after saving.
+
+    <Tip>
+      If you are unsure which provider to start with, add an OpenAI key first. The default Codex model (`gpt-5.4`) at `high` effort is a strong general-purpose choice for build tasks.
+    </Tip>
+  </Step>
+
+  <Step title="Connect a Git repository">
+    1. Click **Repositories** in the navigation.
+    2. Click **Add Repository**.
+    3. Enter a display name and the Git clone URL (SSH or HTTPS).
+    4. Set the default branch (e.g. `main`).
+    5. Optionally add environment variables or secrets that will be injected into the agent runtime.
+    6. Click **Save**.
+
+    AgentSwarm clones the repository into an isolated task workspace when the first task runs.
+  </Step>
+
+  <Step title="Create your first Build task">
+    1. Click **Tasks** in the navigation, then **New Task**.
+    2. Select **Build** as the task type.
+    3. Choose the repository you just added.
+    4. Select a provider (**Codex** or **Claude**), a model, and an effort level.
+    5. Write a prompt describing the code change you want — for example:
+
+       ```text
+       Add a README section explaining the public API endpoints with example curl commands.
+       ```
+
+    6. Click **Create Task**.
+
+    AgentSwarm creates a task record, prepares an isolated workspace clone, and queues the build action immediately.
+  </Step>
+
+  <Step title="Watch the task run and review the checkpoint">
+    The task detail page streams logs and status updates in real time as the agent works.
+
+    - **Logs tab** — raw agent output from the runtime container
+    - **Diff tab** — live unified diff of workspace changes against the base branch
+    - **Runs tab** — individual execution records with start time, provider, and outcome
+
+    When the agent finishes making changes it creates a **checkpoint** — a reviewable change proposal. You will see a prompt to **Apply**, **Reject**, or **Revert** the changes.
+
+    - **Apply** — commits the changes and marks the checkpoint resolved. The task moves to the next step or completes.
+    - **Reject** — discards the proposed changes without touching the branch.
+    - **Revert** — undoes a previously applied checkpoint using the stored diff.
+
+    Once you are happy with the result, use the **Push** button on the task detail page to push the branch to your remote, then **Merge** to merge it into the target branch directly from AgentSwarm.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Common Commands
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+| Command | Description |
+|---------|-------------|
+| `./agentswarm.sh init` | Build runtime images, rebuild Compose images, and start the stack. |
+| `./agentswarm.sh start` | Start the Docker Compose stack in the background. |
+| `./agentswarm.sh stop` | Stop the Docker Compose stack. |
+| `./agentswarm.sh rebuild` | Rebuild all images and restart the stack (same as `init`). |
+
+### Health Check
+
+```bash
+curl -fsS http://localhost:3217/api/health
+```
+
+A successful response confirms that the Fastify API server is up and reachable through the Nginx proxy.
+
+### Stopping the Stack
+
+```bash
+./agentswarm.sh stop
+```
+
+This runs `docker compose down` and stops all running containers. Task workspaces on disk are preserved.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand tasks, providers, checkpoints, sequences, snippets, and how the full task lifecycle works.
+  </Card>
+  <Card title="Tasks" icon="list-check" href="/features/tasks">
+    Deep-dive into task types, branch strategies, prompt attachments, and the interactive terminal.
+  </Card>
+</CardGroup>

@@ -1,0 +1,185 @@
+---
+title: "Set Up a Local AgentSwarm Development Environment"
+sidebarTitle: "Dev Setup"
+description: "Clone AgentSwarm, install npm dependencies, build runtime images, and start the development stack with hot reload for server and web."
+---
+
+AgentSwarm runs as a Docker-based stack, so the local development environment mirrors production closely. The setup process clones the repository, initialises Docker services (nginx, server, web, Postgres, Redis), builds the agent runtime images, and installs Node.js dependencies — after which a single command starts the full stack with hot reload for both the server and the web app.
+
+## Prerequisites
+
+Before you begin, make sure the following tools are installed and available on your `PATH`:
+
+<CardGroup cols={2}>
+  <Card title="Docker & Docker Compose" icon="docker">
+    Required for the main app stack and all agent runtime containers. Both `docker compose` (v2) and `docker-compose` (v1) are supported.
+  </Card>
+  <Card title="Node.js 20+ and npm" icon="node">
+    Required for local development, checks, tests, and builds. Install via [nodejs.org](https://nodejs.org) or a version manager such as `nvm`.
+  </Card>
+  <Card title="Python 3" icon="python">
+    Required when installing npm dependencies locally because native modules such as `node-pty` may build from source via `node-gyp`.
+  </Card>
+  <Card title="Bash" icon="terminal">
+    Required by the helper and harness scripts in `scripts/harness/` and by `agentswarm.sh`.
+  </Card>
+</CardGroup>
+
+## Initial Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone git@github.com:coretracker/agentswarm.git
+    cd agentswarm
+    ```
+  </Step>
+
+  <Step title="Run the harness setup script">
+    The setup script initialises the Docker stack, builds runtime images, creates the `local-plans/` and `task-workspaces/` folders, and — when the flag below is set — installs all npm dependencies:
+
+    ```bash
+    HARNESS_INSTALL_NPM_DEPS=1 ./scripts/harness/setup.sh
+    ```
+
+    What happens under the hood:
+    - Creates `.env` from `.env.example` if the file is missing.
+    - Ensures runtime folders (`local-plans/`, `task-workspaces/`) exist.
+    - Runs `./agentswarm.sh init` to build and start the required containers.
+    - Runs `npm ci --include=dev` to install all workspace dependencies (because `HARNESS_INSTALL_NPM_DEPS=1` is set).
+
+    <Note>
+      Install npm dependencies before running `check.sh`, `test.sh`, or `pr-ready.sh`. Those scripts require a populated `node_modules/` tree.
+    </Note>
+
+    If you only need the Docker services and do not plan to run local checks or tests, you can omit the flag:
+
+    ```bash
+    ./scripts/harness/setup.sh
+    ```
+  </Step>
+
+  <Step title="Copy the environment file">
+    If the setup script has not already created `.env` for you, copy the example file manually and review the values:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Key variables to review:
+
+    | Variable | Default | Notes |
+    |---|---|---|
+    | `PUBLIC_PORT` | `3217` | Port exposed by the nginx reverse proxy. |
+    | `DEFAULT_ADMIN_EMAIL` | `admin@agentswarm.local` | Bootstrap admin email (first-boot only). |
+    | `DEFAULT_ADMIN_PASSWORD` | see `.env.example` | Bootstrap admin password (first-boot only). |
+    | `DATABASE_URL` | see `.env.example` | Postgres connection string. |
+    | `REDIS_HOST_PORT` | `6379` | Host port for the Redis container. |
+    | `POSTGRES_HOST_PORT` | `5432` | Host port for the Postgres container. |
+
+    <Warning>
+      The bootstrap admin credentials are written from `.env.example` and are only used when the **first** admin user is created. Change `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD` before exposing the app outside your local machine.
+    </Warning>
+  </Step>
+
+  <Step title="Start the development stack">
+    Run the server and web dev processes together with hot reload:
+
+    ```bash
+    npm run dev
+    ```
+
+    This uses `concurrently` to run both `@agentswarm/server` (via `tsx watch`) and `@agentswarm/web` (via Next.js dev server) in parallel.
+
+    Alternatively, start the full Docker stack (including nginx, Postgres, and Redis) and wait for the health check to pass:
+
+    ```bash
+    ./scripts/harness/start.sh
+    ```
+  </Step>
+</Steps>
+
+## Running Services Individually
+
+You can start the server or web app in isolation using npm workspace commands:
+
+```bash
+# Start only the Fastify server with hot reload (tsx watch)
+npm run dev -w @agentswarm/server
+
+# Start only the Next.js web app with hot reload
+npm run dev -w @agentswarm/web
+```
+
+This is useful when you're working on one layer and want faster feedback without the overhead of the other process.
+
+## Verifying the Setup
+
+Once the stack is running, confirm that everything is healthy:
+
+```bash
+curl -fsS http://localhost:3217/api/health
+```
+
+A successful response looks like:
+
+```json
+{ "ok": true }
+```
+
+Then open the login page in your browser:
+
+```text
+http://localhost:3217/login
+```
+
+Sign in with the bootstrap credentials from your `.env` file (defaults from `.env.example` are `admin@agentswarm.local` and the password defined there).
+
+<Tip>
+  After signing in, go to **Settings** and add your provider credentials for OpenAI/Codex and Anthropic/Claude. Then go to **Repositories** and add a Git repository before creating your first task.
+</Tip>
+
+## Database Reset
+
+If your local data becomes stale or inconsistent — for example after switching branches or if bootstrap credentials are no longer working — you can wipe and recreate the Postgres and Redis volumes:
+
+```bash
+HARNESS_DB_RESET=1 ./scripts/harness/setup.sh
+```
+
+This removes the local Docker volumes for the stack and recreates all services from a clean state. The default admin user will be recreated on the next boot using the values in `.env`.
+
+## Doctor Script
+
+The doctor script verifies that all required tools are installed and that the harness scripts are available. Run it first whenever setup fails unexpectedly:
+
+```bash
+./scripts/harness/doctor.sh
+```
+
+It checks for `docker`, `docker compose`, `node`, `npm`, `python3`, `bash`, and the presence of the harness scripts themselves. Any missing dependency is reported with a clear message.
+
+<Accordion title="Port conflicts">
+  If local ports are already in use, override the defaults in `.env` before running setup:
+
+  ```bash
+  PUBLIC_PORT=3300 REDIS_HOST_PORT=6380 POSTGRES_HOST_PORT=5433 ./scripts/harness/setup.sh
+  ```
+
+  Or edit the values directly in `.env` and re-run `./scripts/harness/start.sh`.
+</Accordion>
+
+<Accordion title="npm ci fails with node-gyp errors">
+  The `node-pty` package builds a native module from source using `node-gyp`, which requires Python 3. If `npm ci` fails with a message like `Could not find any Python installation to use`, install Python 3 and retry:
+
+  ```bash
+  # macOS (using Homebrew)
+  brew install python3
+
+  # Ubuntu / Debian
+  sudo apt-get install python3
+
+  # Then retry
+  HARNESS_INSTALL_NPM_DEPS=1 ./scripts/harness/setup.sh
+  ```
+</Accordion>

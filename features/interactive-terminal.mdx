@@ -1,0 +1,113 @@
+---
+title: "Interactive Browser Terminal for Task Workspaces"
+sidebarTitle: "Interactive Terminal"
+description: "Open a live browser terminal into any task workspace. Run interactive Codex or Claude sessions, or use the restricted Git terminal for branch and diff operations."
+---
+
+AgentSwarm provides a browser-based terminal that connects directly to a task's Docker workspace container. You can open it from the task detail page to run an interactive Codex or Claude agent session, or to access a restricted Git shell for manual branch and diff operations — all without leaving the browser.
+
+## Terminal Modes
+
+Two terminal modes are available, selected when you open the terminal.
+
+<CardGroup cols={2}>
+  <Card title="Interactive" icon="terminal">
+    Launches a full interactive Codex or Claude session inside the task workspace. The agent runs in real time and any file changes it makes are tracked as workspace changes, which then appear as a change proposal (checkpoint) when the session ends.
+  </Card>
+  <Card title="Git Terminal" icon="code-branch">
+    Launches a restricted Alpine-based shell with only `git`, `vim`, and `diff3` available. Use this for manual Git operations — inspecting diffs, resolving conflicts, or staging changes — without the risk of running arbitrary commands inside the workspace.
+  </Card>
+</CardGroup>
+
+## Starting a Terminal Session
+
+<Steps>
+  <Step title="Open the task detail page">
+    Navigate to the task you want to work in. The terminal button is available in the task actions area.
+  </Step>
+  <Step title="Choose a mode">
+    Select **Interactive Terminal** to run Codex or Claude interactively, or **Git Terminal** for the restricted shell.
+  </Step>
+  <Step title="Connect">
+    The browser opens a WebSocket connection to the server, which starts a Docker container for the selected mode and wires up a PTY. The terminal appears in the browser and is ready for input.
+  </Step>
+</Steps>
+
+<Note>
+  The terminal is unavailable while a task is queued or actively running an automated build or ask job. Finish or cancel the current run before opening a terminal session. Only one terminal session can be active per task at a time.
+</Note>
+
+## Interactive Session
+
+The interactive mode runs the agent — Codex or Claude, matching the task's configured provider — inside the same workspace the automated runs use. The session uses the same model and reasoning effort profile configured on the task.
+
+- Codex sessions start with `--dangerously-bypass-approvals-and-sandbox` and `-C /workspace` so all changes target the task workspace.
+- Claude sessions start with auto-updater disabled and `disableBypassPermissionsMode` set.
+- Provider session state (the session ID file) is persisted across terminal sessions for the same task, so you can resume a conversation if the connection drops.
+- Repository environment variables and secrets configured on the repository are injected into the container at session start.
+
+When the session ends, AgentSwarm checks for workspace changes. If changes are detected, a **change proposal** (checkpoint) is created and the task moves to `awaiting_review`, just like after an automated build run. You can then apply, reject, or revert the changes from the task detail page.
+
+## Git Terminal
+
+The Git terminal mode uses a separate minimal image (`GIT_TERMINAL_IMAGE`) built from `tools/codex-web-terminal/Dockerfile.git`. It provides:
+
+- `git` — for all standard Git operations
+- `vim` — for editing files directly in the workspace
+- `diff3` — for manual conflict resolution
+
+The workspace is mounted at `/workspace`. Your Git identity (name and email) is configured automatically from the task's repository settings. A GitHub token (if configured in Settings) is available inside the container for authenticated Git operations.
+
+<Tip>
+  Use the Git terminal to manually resolve merge conflicts, inspect `git log`, or run `git diff` against arbitrary refs before deciding whether to push or merge from the task detail UI.
+</Tip>
+
+## Session Lifecycle
+
+Each terminal session produces structured lifecycle log messages that appear in the task's log history:
+
+| Event | Message |
+|---|---|
+| Session started | `Interactive terminal session started.` or `Git terminal session started.` |
+| Session ended | `Interactive terminal session ended.` or `Git terminal session ended.` |
+| No changes detected | `Interactive terminal session ended. No workspace changes were detected.` |
+| Changes available for review | `Interactive terminal session ended. Review proposed changes below.` |
+
+A session transcript (up to 2 MB) is saved server-side and can be retrieved by session ID for audit or debugging purposes.
+
+## Required Docker Images
+
+Three Docker images must be built before interactive terminals are available. These are separate from the automated runtime images.
+
+| Environment Variable | Purpose | Default Tag |
+|---|---|---|
+| `GIT_TERMINAL_IMAGE` | Restricted Git shell container | `local/git-terminal:latest` |
+| `CODEX_INTERACTIVE_IMAGE` | Interactive Codex terminal container | `local/codex-interactive:latest` |
+| `CLAUDE_INTERACTIVE_IMAGE` | Interactive Claude Code terminal container | `local/claude-interactive:latest` |
+
+All three images are built from Dockerfiles in the `tools/codex-web-terminal/` directory:
+
+```bash
+# Git terminal
+docker build -f tools/codex-web-terminal/Dockerfile.git \
+  -t local/git-terminal:latest \
+  tools/codex-web-terminal
+
+# Interactive Codex
+docker build -f tools/codex-web-terminal/Dockerfile.codex \
+  -t local/codex-interactive:latest \
+  tools/codex-web-terminal
+
+# Interactive Claude Code
+docker build -f tools/codex-web-terminal/Dockerfile.claude \
+  -t local/claude-interactive:latest \
+  tools/codex-web-terminal
+```
+
+If an image is missing when you attempt to start a terminal session, AgentSwarm will report the exact image name and the build command needed to create it.
+
+For full setup instructions, see [Docker Setup](/configuration/docker-setup).
+
+<Warning>
+  Docker socket access (`DOCKER_SOCKET_ACCESS_ENABLED`) is disabled by default and must **not** be enabled unless the interactive runtime genuinely needs to start nested containers. Mounting the Docker socket into a runtime container is a highly privileged operation that can effectively grant host-level control from inside the container.
+</Warning>

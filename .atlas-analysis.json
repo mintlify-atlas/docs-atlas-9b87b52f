@@ -1,0 +1,96 @@
+{
+  "projectType": "saas",
+  "projectName": "AgentSwarm",
+  "projectDescription": "AgentSwarm is a Docker-based web app for running and managing AI coding agents (Codex and Claude) against real Git repositories, with full task orchestration, diff review, and GitHub integration.",
+  "theme": "luma",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4338ca",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/tasks",
+              "features/repositories",
+              "features/sequences",
+              "features/snippets",
+              "features/interactive-terminal"
+            ]
+          },
+          {
+            "group": "Automation & Integrations",
+            "pages": [
+              "integrations/github-webhooks",
+              "integrations/postflight-checks",
+              "integrations/mcp-servers"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/provider-setup",
+              "configuration/roles-and-users",
+              "configuration/docker-setup"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/commands",
+              "development/architecture"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Run Codex and Claude AI coding agents in isolated Docker runtime containers",
+    "Create tasks from blank prompts, reusable snippets, GitHub issues, or pull requests",
+    "Review, apply, reject, or revert pending change proposals (checkpoints) before merging",
+    "Interactive browser-based terminal for task workspaces",
+    "Automate task creation from GitHub webhooks with label filters and automation rules",
+    "Multi-step prompt sequences with variable substitution",
+    "Repository-scoped environment variables and secrets for agent runtimes",
+    "Postflight checks via .agentswarm/postflight.yml after successful builds",
+    "MCP server configuration for extended agent tooling",
+    "Real-time task status, logs, diffs, and Git operations via Socket.IO"
+  ],
+  "publicApiSurface": [
+    "POST /api/tasks — create a new task",
+    "GET /api/tasks — list tasks",
+    "GET /api/tasks/:id — get task detail",
+    "POST /api/tasks/:id/actions — trigger build/ask actions",
+    "POST /api/tasks/:id/push — push task branch",
+    "POST /api/tasks/:id/merge — merge task branch",
+    "POST /api/change-proposals/:id/apply — apply a checkpoint",
+    "POST /api/change-proposals/:id/reject — reject a checkpoint",
+    "POST /api/repositories — create a repository",
+    "GET /api/repositories — list repositories",
+    "POST /api/sequences — create a sequence",
+    "GET /api/sequences — list sequences",
+    "POST /api/snippets — create a snippet",
+    "GET /api/snippets — list snippets",
+    "POST /api/imports/issue — import a GitHub issue as a task",
+    "POST /api/imports/pull-request — import a GitHub PR as a task",
+    "POST /api/webhooks/github/:repositoryId — GitHub webhook endpoint",
+    "GET /api/settings — get system settings",
+    "PUT /api/settings — update system settings",
+    "GET /api/health — health check",
+    "POST /api/tasks/prompt-magic — AI-assisted prompt enhancement"
+  ]
+}

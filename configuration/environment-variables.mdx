@@ -1,0 +1,98 @@
+---
+title: "Environment Variables Reference for AgentSwarm"
+sidebarTitle: "Environment Variables"
+description: "Complete reference for all AgentSwarm environment variables. Configure auth, storage, Git identity, runtime images, and Docker socket access via .env."
+---
+
+All runtime configuration for AgentSwarm starts in a `.env` file at the repository root. Create it by copying the provided example — `cp .env.example .env` — then edit the values to match your environment. Provider API keys (OpenAI, Anthropic, GitHub) are **not** configured in `.env`; they are entered through the AgentSwarm Settings UI after the stack is running.
+
+## Core Variables
+
+These variables control the public interface, authentication, and the runtime environment label.
+
+| Variable | Description | Default |
+|---|---|---|
+| `PUBLIC_PORT` | Host port exposed by the nginx reverse proxy. | `3217` |
+| `CORS_ORIGIN` | Allowed web origin for the API server. Must match the URL your browser uses. | `http://localhost:3217` |
+| `DEFAULT_ADMIN_NAME` | Display name for the bootstrap admin account, created only on first startup. | `Administrator` |
+| `DEFAULT_ADMIN_EMAIL` | Email for the bootstrap admin account. | `admin@agentswarm.local` |
+| `DEFAULT_ADMIN_PASSWORD` | Password for the bootstrap admin account. Minimum 8 characters. | `admin123!` |
+| `AUTH_COOKIE_NAME` | Name of the session cookie set by the server. | `agentswarm_session` |
+| `AUTH_SESSION_TTL_DAYS` | Session lifetime in days. Must be an integer between 1 and 365. | `7` |
+| `APP_ENVIRONMENT` | Logical environment label used in runtime logs and analytics (e.g. `local`, `staging`, `production`). | `local` |
+
+<Warning>
+  The default `DEFAULT_ADMIN_PASSWORD` (`admin123!`) is public knowledge. Change it in `.env` before exposing AgentSwarm outside a local development environment, or update the admin password immediately from the UI after first login.
+</Warning>
+
+## Storage Variables
+
+AgentSwarm uses Postgres for all durable application data and Redis for sessions, queues, webhook jobs, and real-time pub/sub.
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | Postgres connection string used by the server. | `postgres://postgres:postgres@localhost:5432/agentswarm` |
+| `POSTGRES_AUTO_MIGRATE` | When `true`, the server runs Postgres migrations automatically on startup. | `true` |
+| `REDIS_HOST_PORT` | Host port for the Redis container in local Docker setups. | `6379` |
+| `POSTGRES_HOST_PORT` | Host port for the Postgres container in local Docker setups. | `5432` |
+
+<Note>
+  `REDIS_HOST_PORT` and `POSTGRES_HOST_PORT` only affect the host-side port binding in Docker Compose. The server container always connects to Redis at `redis://redis:6379` and Postgres via `DATABASE_URL`.
+</Note>
+
+## Git and Workspaces
+
+These variables control the Git identity used for server-side commits and the filesystem locations where task workspaces are stored.
+
+| Variable | Description | Default |
+|---|---|---|
+| `GIT_USER_NAME` | Git author name applied to commits made by the server. | `AgentSwarm Bot` |
+| `GIT_USER_EMAIL` | Git author email applied to commits made by the server. | `agentswarm@local.dev` |
+| `TASK_WORKSPACE_HOST_ROOT` | Absolute host path for task workspace directories. See note below. | `/tmp/agentswarm-task-workspaces` |
+| `LOCAL_PLANS_HOST_ROOT` | Absolute host path for local plan storage. | *(unset)* |
+
+<Warning>
+  `TASK_WORKSPACE_HOST_ROOT` must be an **absolute path on the Docker host**. The server container and every agent runtime container launched by AgentSwarm must bind-mount this same host path — if they disagree, agents write files the server cannot find, and Git state shown in the UI will not match what actually happened. The Docker Compose default is `${PWD}/task-workspaces`; set this variable explicitly to a stable absolute path in any non-trivial deployment.
+</Warning>
+
+## Frontend API Routing
+
+| Variable | Description | Default |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Explicit base URL for API requests from the browser. | *(empty)* |
+| `NEXT_PUBLIC_SOCKET_URL` | Explicit base URL for Socket.IO connections from the browser. | *(empty)* |
+
+Leave both variables empty to use the bundled same-origin `/api` proxy handled by nginx. Set them only when the API server is on a different origin from the web app — for example, in a split-host deployment.
+
+## Runtime Images
+
+AgentSwarm launches agent task runs and interactive terminals in separate Docker containers. The image names for each runtime are configured here.
+
+| Variable | Description | Default |
+|---|---|---|
+| `CODEX_RUNTIME_IMAGE` | Image used for automated Codex task runs. | `agentswarm-agent-runtime-codex:latest` |
+| `CLAUDE_RUNTIME_IMAGE` | Image used for automated Claude task runs. | `agentswarm-agent-runtime-claude:latest` |
+| `GIT_TERMINAL_IMAGE` | Restricted Alpine image with git, vim, and diff3 for in-browser Git terminals. | `local/git-terminal:latest` |
+| `CODEX_INTERACTIVE_IMAGE` | Image for in-browser interactive Codex terminals. | `local/codex-interactive:latest` |
+| `CLAUDE_INTERACTIVE_IMAGE` | Image for in-browser interactive Claude Code terminals. | `local/claude-interactive:latest` |
+
+<Note>
+  Setting any terminal image variable to an empty string disables that terminal type entirely. Runtime images are built locally by `./agentswarm.sh init` or `./agentswarm.sh rebuild` — they are not pulled from a registry.
+</Note>
+
+## Docker Socket Access
+
+Docker socket access allows agent runtime containers to start their own nested Docker containers. This feature is disabled by default and should remain so unless a specific runtime requirement demands it.
+
+| Variable | Description | Default |
+|---|---|---|
+| `DOCKER_SOCKET_ACCESS_ENABLED` | When `true`, mounts the Docker socket into Codex and Claude runtime containers. | `false` |
+| `DOCKER_SOCKET_HOST_PATH` | Path to the Docker socket on the host. | `/var/run/docker.sock` |
+| `DOCKER_SOCKET_CONTAINER_PATH_CODEX` | Mount target path inside Codex runtime containers. | `/var/run/docker.sock` |
+| `DOCKER_SOCKET_CONTAINER_PATH_CLAUDE` | Mount target path inside Claude runtime containers. | `/var/run/docker.sock` |
+
+<Warning>
+  Mounting `docker.sock` into a container is a **highly privileged** operation. Any process inside the container that can reach the socket can start, stop, or inspect containers on the host — effectively gaining host-level control. Enable this only if you understand the security implications and have a concrete use case, such as a postflight check that must launch containers. Never enable it in a multi-tenant or internet-exposed environment without additional sandboxing.
+</Warning>
+
+When `DOCKER_SOCKET_ACCESS_ENABLED` is `false` (the default), the server evaluates socket access with a `feature_disabled` denial reason and passes no `-v` mount arguments to agent containers. When enabled, the server also sets the `DOCKER_HOST` environment variable inside the runtime container to `unix://<containerPath>` so standard Docker tooling inside the container locates the socket automatically.

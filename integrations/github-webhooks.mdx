@@ -1,0 +1,281 @@
+---
+title: "Automate Tasks with GitHub Webhook Integration"
+sidebarTitle: "GitHub Webhooks"
+description: "Configure GitHub webhooks to automatically create AgentSwarm tasks from issues, pull requests, review comments, and reactions using automation rules."
+---
+
+AgentSwarm can listen to GitHub events and automatically create and start tasks on your behalf. When a matching event arrives — such as a new issue being opened or a reaction added to a comment — AgentSwarm evaluates your repository's automation rules and, if a rule matches, spins up an agent task without any manual intervention. This makes it straightforward to wire up AI-assisted workflows directly into your existing GitHub projects.
+
+## Webhook URL Format
+
+Each repository in AgentSwarm has a dedicated webhook endpoint:
+
+```
+https://<your-host>/api/webhooks/github/<repositoryId>
+```
+
+The `repositoryId` is the UUID assigned to a repository when you add it in AgentSwarm. You can find it in the repository settings page or by copying it from the URL when viewing the repository in the UI.
+
+## GitHub Setup
+
+Configure the webhook on the GitHub repository side so that events are forwarded to AgentSwarm.
+
+<Steps>
+  <Step title="Open Webhook Settings">
+    In your GitHub repository, go to **Settings → Webhooks → Add webhook**.
+  </Step>
+  <Step title="Set the Payload URL">
+    Enter your AgentSwarm webhook URL:
+    ```
+    https://<your-host>/api/webhooks/github/<repositoryId>
+    ```
+  </Step>
+  <Step title="Set Content Type">
+    Select **application/json** as the content type.
+  </Step>
+  <Step title="Choose Events">
+    Select **Let me select individual events** and enable the events you want to automate:
+    - **Issues** — triggers on issue lifecycle actions such as `opened`
+    - **Pull requests** — triggers on pull request lifecycle actions such as `opened`
+    - **Pull request review comments** — triggers on inline review comment activity
+    - **Issue comments** — triggers on issue and PR comment activity
+    - **Reactions** — triggers when emoji reactions are added or removed
+
+    You only need to subscribe to the events your automation rules actually use.
+  </Step>
+  <Step title="Save">
+    Click **Add webhook**. GitHub will send a ping event to verify the URL is reachable.
+  </Step>
+</Steps>
+
+<Tip>
+  If you want to validate webhook payloads with a shared secret, configure a **GitHub Webhook Secret** in the AgentSwarm repository settings alongside the webhook secret you set in GitHub.
+</Tip>
+
+## Automation Rules
+
+Each repository can have a list of JSON automation rules stored in its settings under **githubAutomations**. Rules are evaluated in order for every inbound webhook event. A single event can match and create tasks for multiple rules.
+
+### Rule Structure
+
+<ParamField body="id" type="string" required>
+  A unique identifier for this rule within the repository. Used for deduplication and audit references.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  A human-readable label for the rule shown in logs and the UI.
+</ParamField>
+
+<ParamField body="enabled" type="boolean" required>
+  When `false`, the rule is stored but never evaluated. Set to `true` to activate it.
+</ParamField>
+
+<ParamField body="trigger" type="string" required>
+  The primary event type this rule listens for. Supported values are `issue_opened` and `pull_request_opened`. Comment and reaction triggers are activated by additionally setting `automationEnabled: true` (see below).
+</ParamField>
+
+<ParamField body="syncStatusEnabled" type="boolean">
+  When `true`, AgentSwarm writes task status updates back to the originating GitHub issue or pull request as comments. Defaults to `false`.
+</ParamField>
+
+<ParamField body="automationEnabled" type="boolean">
+  When `true`, this rule also fires on comment and reaction events (issue comments, PR review comments, and emoji reactions), not just on the primary `trigger` event. Requires configuring `allowedTriggers` and related fields.
+</ParamField>
+
+<ParamField body="allowedTriggers" type="string[]">
+  When `automationEnabled` is `true`, restricts which comment-based trigger mechanisms can activate the rule. Supported values are `emoji_reaction`, `slash_command`, and `bot_mention`. Defaults to all three when `automationEnabled` is `true`.
+</ParamField>
+
+<ParamField body="allowedReactions" type="string[]">
+  Emoji reactions that activate the rule when `emoji_reaction` is in `allowedTriggers`. For example: `["🤖", "rocket"]`. Defaults to `["🤖", "robot"]`.
+</ParamField>
+
+<ParamField body="allowedCommands" type="string[]">
+  Slash commands that activate the rule when `slash_command` is in `allowedTriggers`. For example: `["/agent run"]`. Defaults to `["/agent run"]`.
+</ParamField>
+
+<ParamField body="allowedActorLogins" type="string[]">
+  GitHub usernames permitted to trigger comment-based automation. When empty, any non-bot user may trigger. Bots and accounts whose login ends with `[bot]` are always blocked to prevent automation loops.
+</ParamField>
+
+<ParamField body="labelFilter" type="object">
+  Restricts which issues or pull requests the rule applies to, based on labels. See [Label Filtering](#label-filtering) for details.
+
+  <Expandable title="labelFilter fields">
+    <ParamField body="labelFilter.labelsAny" type="string[]">
+      At least one of these labels must be present on the issue or PR for the rule to fire.
+    </ParamField>
+    <ParamField body="labelFilter.labelsAll" type="string[]">
+      Every label in this list must be present on the issue or PR for the rule to fire.
+    </ParamField>
+    <ParamField body="labelFilter.labelsNone" type="string[]">
+      If any of these labels are present, the rule is skipped entirely.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="task" type="object" required>
+  Configuration for the task that is created when this rule fires.
+
+  <Expandable title="task fields">
+    <ParamField body="task.assigneeEmail" type="string">
+      Email address of the AgentSwarm user who will own the created task. If omitted or not found, the task is assigned to the first available admin user.
+    </ParamField>
+    <ParamField body="task.taskType" type="string">
+      Whether to create a `build` task (makes repository changes) or an `ask` task (inspects and answers without changes). Defaults to `build`.
+    </ParamField>
+    <ParamField body="task.provider" type="string">
+      The AI provider to use: `codex` or `claude`.
+    </ParamField>
+    <ParamField body="task.providerProfile" type="string">
+      Reasoning effort level: `low`, `medium`, `high`, or `max` (Claude only).
+    </ParamField>
+    <ParamField body="task.modelOverride" type="string">
+      Override the default model for the selected provider, e.g. `gpt-5.4` or `claude-opus-4-5`. Leave unset to use the system default.
+    </ParamField>
+    <ParamField body="task.codexCredentialSource" type="string">
+      How Codex resolves its API credentials: `auto`, `profile`, or `global`.
+    </ParamField>
+    <ParamField body="task.includeComments" type="boolean">
+      For issue-triggered tasks, whether to fetch and include issue comments in the task prompt. Defaults to `false` for `issue_opened` triggers and `true` for comment triggers.
+    </ParamField>
+    <ParamField body="task.titleTemplate" type="string">
+      A custom title for the created task. If omitted, the title is derived from the issue or PR title.
+    </ParamField>
+    <ParamField body="task.notes" type="string">
+      Additional notes prepended to the task, visible in the task detail view.
+    </ParamField>
+    <ParamField body="task.snippetId" type="string">
+      ID of a saved snippet whose content is prepended to the task notes. Useful for injecting standard instructions into every automated task.
+    </ParamField>
+    <ParamField body="task.baseBranch" type="string">
+      The branch the task workspace should be based on. Defaults to the repository's default branch.
+    </ParamField>
+    <ParamField body="task.branchStrategy" type="string">
+      How the agent branch is managed: `feature_branch` (creates a new branch) or `work_on_branch` (works on an existing branch).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Full Example Rule
+
+The following example is taken directly from the AgentSwarm examples directory. It demonstrates three rules: a basic `issue_opened` rule and two comment-trigger rules for issues and pull requests.
+
+```json
+[
+  {
+    "id": "ai-issue-opened",
+    "name": "AI issue -> build task",
+    "enabled": true,
+    "trigger": "issue_opened",
+    "labelFilter": {
+      "labelsAny": ["ai"],
+      "labelsNone": ["wip"]
+    },
+    "task": {
+      "assigneeEmail": "dev@company.com",
+      "taskType": "build",
+      "provider": "codex",
+      "providerProfile": "high",
+      "modelOverride": "gpt-5.4",
+      "codexCredentialSource": "profile"
+    }
+  },
+  {
+    "id": "ai-comment-triggers-on-issues",
+    "name": "Issue comments can intentionally trigger automation",
+    "enabled": true,
+    "trigger": "issue_opened",
+    "automationEnabled": true,
+    "allowedTriggers": ["emoji_reaction", "slash_command", "bot_mention"],
+    "allowedReactions": ["🤖", "eyes"],
+    "allowedCommands": ["/agent run"],
+    "allowedActorLogins": ["repo-admin", "maintainer-1"],
+    "labelFilter": {
+      "labelsAny": ["ai"],
+      "labelsNone": ["wip"]
+    },
+    "task": {
+      "assigneeEmail": "dev@company.com",
+      "taskType": "build",
+      "includeComments": true,
+      "provider": "codex",
+      "providerProfile": "high"
+    }
+  },
+  {
+    "id": "ai-comment-triggers-on-prs",
+    "name": "PR comments can intentionally trigger automation",
+    "enabled": true,
+    "trigger": "pull_request_opened",
+    "automationEnabled": true,
+    "allowedTriggers": ["emoji_reaction", "slash_command", "bot_mention"],
+    "allowedReactions": ["🤖", "rocket"],
+    "allowedCommands": ["/agent run"],
+    "allowedActorLogins": ["repo-admin", "maintainer-1"],
+    "task": {
+      "assigneeEmail": "dev@company.com",
+      "provider": "codex",
+      "providerProfile": "high"
+    }
+  }
+]
+```
+
+## Label Filtering
+
+The `labelFilter` object lets you scope rules to specific issues or pull requests based on their GitHub labels. All matching is case-insensitive.
+
+<CardGroup cols={3}>
+  <Card title="labelsAny" icon="tag">
+    The issue or PR must have **at least one** of the listed labels for the rule to fire. Useful for opt-in labels like `ai` or `bot-ready`.
+  </Card>
+  <Card title="labelsAll" icon="tags">
+    The issue or PR must have **every** listed label. Use this when multiple labels together signal intent.
+  </Card>
+  <Card title="labelsNone" icon="ban">
+    If the issue or PR has **any** of these labels, the rule is skipped. Useful for blocking labels like `wip` or `do-not-automate`.
+  </Card>
+</CardGroup>
+
+All three filter fields can be combined. The rule fires only when all specified conditions are satisfied simultaneously.
+
+## Status Sync
+
+When `syncStatusEnabled` is `true` on a rule, AgentSwarm posts status update comments back to the originating GitHub issue or pull request as the task progresses. This keeps your GitHub timeline in sync without requiring anyone to check the AgentSwarm UI.
+
+<Note>
+  Status sync requires a GitHub token to be configured in **Settings → Credentials**. The token needs write access to issues on the target repository.
+</Note>
+
+## Webhook Response
+
+Every inbound webhook payload receives an HTTP `202 Accepted` response. The response body reports how many rules matched and how many tasks were created:
+
+```json
+{ "accepted": true, "matched": 2, "created": 2 }
+```
+
+A `202` does **not** guarantee that tasks were created. Task creation depends on:
+
+- Whether any automation rules are configured for the repository
+- Whether the event type and action match a rule's trigger
+- Whether label filters pass
+- Whether an actor allowlist is satisfied (for comment triggers)
+- Whether a valid user is available to own the task
+
+A `404` response means the `repositoryId` in the URL is not recognized. A `409` response means no AgentSwarm users exist to own the task.
+
+## Supported Trigger Types
+
+| Trigger | GitHub Event | Fired When |
+|---|---|---|
+| `issue_opened` | `issues` | A new issue is opened |
+| `pull_request_opened` | `pull_request` | A new pull request is opened |
+| `emoji_reaction` (comment automation) | `reaction` | A user adds an emoji reaction to a comment |
+| `slash_command` (comment automation) | `issue_comment`, `pull_request_review_comment` | A comment starts with a configured slash command such as `/agent run` |
+| `bot_mention` (comment automation) | `issue_comment`, `pull_request_review_comment` | A comment contains `@agent` |
+
+<Note>
+  Comment and reaction triggers only fire when the rule has `automationEnabled: true`. Bot accounts and logins ending with `[bot]` are always excluded from comment-based triggers to prevent automation loops.
+</Note>

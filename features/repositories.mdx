@@ -1,0 +1,143 @@
+---
+title: "Connecting and Configuring Git Repositories"
+sidebarTitle: "Repositories"
+description: "Add Git repositories to AgentSwarm, configure environment variables and secrets for agent runtimes, and manage per-repository automation rules."
+---
+
+Repositories are the foundation of every task in AgentSwarm. Before you can run an agent, you need to connect at least one Git repository. Each repository can be configured with environment variables, secrets, and file mounts that are injected into the agent's Docker runtime container whenever a task runs against that repository.
+
+## Adding a Repository
+
+<Steps>
+  <Step title="Open Repositories">
+    Navigate to **Repositories** in the main navigation and click **Add Repository**.
+  </Step>
+  <Step title="Fill in repository details">
+    Provide the repository name, Git URL, and optionally the default branch. If you leave the default branch blank it falls back to the repository's configured default.
+  </Step>
+  <Step title="Configure environment (optional)">
+    Add environment variables, secrets, and file entries that the agent runtime should receive. See the sections below for field constraints and behavior.
+  </Step>
+  <Step title="Save">
+    Click **Save**. AgentSwarm stores the repository record and makes it available for task creation immediately.
+  </Step>
+</Steps>
+
+## Branch Strategy
+
+Each task that targets a repository uses one of two branch strategies, set at task creation time.
+
+| Strategy | Behavior |
+|---|---|
+| `feature_branch` | AgentSwarm creates a new dedicated branch for each task. The branch can be pushed and merged independently. |
+| `work_on_branch` | The agent works directly on the `baseBranch` you specify. No separate feature branch is created. Push and pull operations act on that branch directly. |
+
+## Environment Variables
+
+Environment variables are non-sensitive key/value pairs injected into the agent runtime container for every task that runs against the repository. They are useful for build tool configuration, non-secret API endpoints, feature flags, and similar settings.
+
+<Note>
+  Environment variables are stored in plaintext. Use **Environment Secrets** for sensitive values like tokens and passwords.
+</Note>
+
+### Constraints
+
+| Constraint | Limit |
+|---|---|
+| Maximum variables per repository | 250 |
+| Key pattern | `/^[A-Za-z_][A-Za-z0-9_]*$/` |
+| Maximum key length | 128 characters |
+| Maximum value length | 8,192 characters |
+| Duplicate keys | Not allowed |
+
+### Text Variables
+
+A standard text variable has a `key` and a `value`.
+
+```json
+{
+  "key": "NODE_ENV",
+  "value": "production"
+}
+```
+
+### File Variables
+
+File type variables mount a file into the runtime container. Provide the `fileName` (the path the file will have inside the container) and the file content as a base64-encoded string in `fileContentBase64`.
+
+```json
+{
+  "key": "GOOGLE_CREDENTIALS",
+  "type": "file",
+  "fileName": "/run/secrets/google-creds.json",
+  "fileContentBase64": "<base64-encoded content>"
+}
+```
+
+| File constraint | Limit |
+|---|---|
+| Maximum filename length | 255 characters |
+| Maximum file content (base64) | 350,000 characters (~256 KB decoded) |
+
+## Environment Secrets
+
+Environment secrets are write-only sensitive values stored per repository. They behave like environment variables at runtime, but their values are never returned by the API after saving.
+
+<Warning>
+  Once you save a secret, its value is no longer visible anywhere in the UI or API. You will only see that the secret is "configured". Store the value securely elsewhere before saving.
+</Warning>
+
+### Constraints
+
+Secrets share the same key constraints as environment variables.
+
+| Constraint | Limit |
+|---|---|
+| Maximum secrets per repository | 250 |
+| Key pattern | `/^[A-Za-z_][A-Za-z0-9_]*$/` |
+| Maximum key length | 128 characters |
+| Maximum value length | 8,192 characters |
+
+### Editing Secrets
+
+The API and UI apply the following rules when you update secrets on an existing repository:
+
+- **Leave the value blank** — the existing secret is kept unchanged.
+- **Enter a new value** — the existing secret is replaced with the new value.
+- **Remove the row entirely** — the secret is deleted.
+
+This means you can update one secret without touching others in the same save operation.
+
+### Secret File Entries
+
+Like environment variables, secrets also support the `file` type. The same constraints apply: `fileName` up to 255 characters and `fileContentBase64` up to 350,000 characters.
+
+## Repository Automation Rules
+
+Repositories can be configured with JSON-based automation rules that trigger task creation automatically from GitHub webhook events. Supported triggers include `issue_opened`, `pull_request_opened`, and comment-based interactions.
+
+Automation rules live on the repository record and are evaluated when an incoming GitHub webhook matches the rule's trigger and label filters.
+
+```json
+[
+  {
+    "id": "ai-issue-opened",
+    "name": "AI issue to build task",
+    "enabled": true,
+    "trigger": "issue_opened",
+    "syncStatusEnabled": true,
+    "labelFilter": {
+      "labelsAny": ["ai"],
+      "labelsNone": ["wip"]
+    },
+    "task": {
+      "assigneeEmail": "dev@example.com",
+      "taskType": "build",
+      "provider": "codex",
+      "providerProfile": "high"
+    }
+  }
+]
+```
+
+For full webhook and automation rule documentation, see [GitHub Webhooks](/integrations/github-webhooks).
