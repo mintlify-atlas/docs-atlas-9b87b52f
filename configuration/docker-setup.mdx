@@ -1,7 +1,7 @@
 ---
-title: "Docker Deployment and Runtime Image Setup"
+title: "AgentSwarm Docker Deployment and Runtime Image Setup"
 sidebarTitle: "Docker Setup"
-description: "Deploy AgentSwarm with Docker Compose. Build agent runtime and interactive terminal images, configure volume mounts, and understand the container architecture."
+description: "Deploy AgentSwarm with Docker Compose. Build agent runtime and terminal images, configure volume mounts, and understand the container architecture."
 ---
 
 AgentSwarm is designed to run as a Docker Compose stack. The compose file brings up the core application services, while agent task runs and interactive terminals are launched as on-demand containers by the server — entirely outside the compose stack. Understanding how these two layers interact, especially around shared volumes, is critical to a correct deployment.

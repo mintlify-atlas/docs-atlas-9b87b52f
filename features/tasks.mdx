@@ -1,5 +1,5 @@
 ---
-title: "Managing AI Coding Tasks in AgentSwarm"
+title: "Creating and Managing AI Agent Tasks in AgentSwarm"
 sidebarTitle: "Tasks"
 description: "Create, run, and review build and ask tasks. Understand task types, status lifecycle, checkpoint review, and Git operations like push and merge."
 ---
@@ -83,8 +83,24 @@ The following fields are accepted when creating a task via `POST /tasks`.
   - `work_on_branch` — works directly on the `baseBranch`.
 </ParamField>
 
+<ParamField body="codexCredentialSource" type="string">
+  How to resolve Codex API credentials. One of `auto`, `profile`, or `global`. Only relevant when `provider` is `codex`. Defaults to the system-configured behavior when omitted.
+</ParamField>
+
 <ParamField body="task_source" type="string" default="blank">
   Declares the source type: `blank`, `snippet`, or `sequence`. When using `snippet`, also provide `snippet_id`. When using `sequence`, also provide `sequence_id`.
+</ParamField>
+
+<ParamField body="snippet_id" type="string">
+  ID of the snippet to use as the task source. Required when `task_source` is `snippet`.
+</ParamField>
+
+<ParamField body="sequence_id" type="string">
+  ID of the sequence to run. Required when `task_source` is `sequence`.
+</ParamField>
+
+<ParamField body="sequence_variables" type="object">
+  Key/value map of variable values to substitute into the sequence's step prompts. Each value is a string with a maximum length of 2,000 characters.
 </ParamField>
 
 <ParamField body="notes" type="string">
@@ -93,6 +109,14 @@ The following fields are accepted when creating a task via `POST /tasks`.
 
 <ParamField body="deadline" type="string">
   Optional ISO 8601 deadline date for tracking purposes.
+</ParamField>
+
+<ParamField body="model" type="string" deprecated>
+  Legacy alias for `modelOverride`. Use `modelOverride` instead.
+</ParamField>
+
+<ParamField body="reasoningEffort" type="string" deprecated>
+  Legacy reasoning effort override. Accepted values: `minimal`, `low`, `medium`, `high`, `xhigh`. Use `providerProfile` instead.
 </ParamField>
 
 ## Task Status Lifecycle

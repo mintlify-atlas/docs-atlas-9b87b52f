@@ -28,6 +28,8 @@ The harness scripts in `scripts/harness/` are the canonical entry points for set
 | `HARNESS_INSTALL_NPM_DEPS=1 ./scripts/harness/setup.sh` | Same as above, and also installs npm dependencies via `npm ci --include=dev`. Required before running check, test, or pr-ready flows. |
 | `HARNESS_DB_RESET=1 ./scripts/harness/setup.sh` | Wipe and recreate local Postgres and Redis Docker volumes before setup. |
 | `./scripts/harness/start.sh` | Start the development stack and wait until the health endpoint responds. Equivalent to booting the app and confirming it is ready. |
+| `./scripts/harness/check-docs.sh` | Scan docs for broken internal links, TODO/FIXME counts, and stale review metadata warnings. |
+| `./scripts/harness/check-human-gated-flow.sh` | Verify that active execution plans contain required human-gated flow evidence. |
 | `./scripts/harness/check.sh` | Run the full local check suite: docs checks, human-gated flow checks, architecture boundary checks, lint, and build. |
 | `./scripts/harness/test.sh` | Run the canonical test suite (server unit/integration tests and web tests). |
 | `./scripts/harness/pr-ready.sh` | Run the complete pull-request readiness check: boundary checks, lint, type checks, tests, build, and Docker Compose config validation. Also forces dependency installation when `node_modules` is missing. |

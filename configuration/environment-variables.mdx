@@ -1,5 +1,5 @@
 ---
-title: "Environment Variables Reference for AgentSwarm"
+title: "AgentSwarm Environment Variables Configuration Reference"
 sidebarTitle: "Environment Variables"
 description: "Complete reference for all AgentSwarm environment variables. Configure auth, storage, Git identity, runtime images, and Docker socket access via .env."
 ---
@@ -24,6 +24,17 @@ These variables control the public interface, authentication, and the runtime en
 <Warning>
   The default `DEFAULT_ADMIN_PASSWORD` (`admin123!`) is public knowledge. Change it in `.env` before exposing AgentSwarm outside a local development environment, or update the admin password immediately from the UI after first login.
 </Warning>
+
+## Observability
+
+| Variable | Description | Default |
+|---|---|---|
+| `SENTRY_ENABLED` | When `true`, the server reports errors and performance data to Sentry. | `true` |
+| `SENTRY_DSN` | Sentry DSN endpoint URL. Used only when `SENTRY_ENABLED` is `true`. | *(bundled DSN)* |
+
+<Note>
+  A default Sentry DSN is bundled in the server for error tracking. To disable Sentry entirely, set `SENTRY_ENABLED=false` in `.env`. To route events to your own Sentry project, override `SENTRY_DSN` with your project's DSN.
+</Note>
 
 ## Storage Variables
 
@@ -70,14 +81,12 @@ AgentSwarm launches agent task runs and interactive terminals in separate Docker
 
 | Variable | Description | Default |
 |---|---|---|
-| `CODEX_RUNTIME_IMAGE` | Image used for automated Codex task runs. | `agentswarm-agent-runtime-codex:latest` |
-| `CLAUDE_RUNTIME_IMAGE` | Image used for automated Claude task runs. | `agentswarm-agent-runtime-claude:latest` |
-| `GIT_TERMINAL_IMAGE` | Restricted Alpine image with git, vim, and diff3 for in-browser Git terminals. | `local/git-terminal:latest` |
-| `CODEX_INTERACTIVE_IMAGE` | Image for in-browser interactive Codex terminals. | `local/codex-interactive:latest` |
-| `CLAUDE_INTERACTIVE_IMAGE` | Image for in-browser interactive Claude Code terminals. | `local/claude-interactive:latest` |
+| `GIT_TERMINAL_IMAGE` | Restricted Alpine image with git, vim, and diff3 for in-browser Git terminals. Empty string disables Git terminals. | *(empty)* |
+| `CODEX_INTERACTIVE_IMAGE` | Image for in-browser interactive Codex terminals. Empty string disables Codex interactive terminals. | *(empty)* |
+| `CLAUDE_INTERACTIVE_IMAGE` | Image for in-browser interactive Claude Code terminals. Empty string disables Claude interactive terminals. | *(empty)* |
 
 <Note>
-  Setting any terminal image variable to an empty string disables that terminal type entirely. Runtime images are built locally by `./agentswarm.sh init` or `./agentswarm.sh rebuild` — they are not pulled from a registry.
+  The terminal image variables default to an empty string (feature disabled). Set them to the locally built images — `local/git-terminal:latest`, `local/codex-interactive:latest`, and `local/claude-interactive:latest` — after running `./agentswarm.sh init` or `./agentswarm.sh rebuild`. The automated Codex and Claude runtime images (`agentswarm-agent-runtime-codex:latest`, `agentswarm-agent-runtime-claude:latest`) are hardcoded in the server and are not configurable via environment variables.
 </Note>
 
 ## Docker Socket Access

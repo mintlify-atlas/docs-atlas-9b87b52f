@@ -1,5 +1,5 @@
 ---
-title: "Automate Tasks with GitHub Webhook Integration"
+title: "Configure GitHub Webhooks for Automated Task Creation"
 sidebarTitle: "GitHub Webhooks"
 description: "Configure GitHub webhooks to automatically create AgentSwarm tasks from issues, pull requests, review comments, and reactions using automation rules."
 ---
@@ -71,7 +71,7 @@ Each repository can have a list of JSON automation rules stored in its settings 
 </ParamField>
 
 <ParamField body="trigger" type="string" required>
-  The primary event type this rule listens for. Supported values are `issue_opened` and `pull_request_opened`. Comment and reaction triggers are activated by additionally setting `automationEnabled: true` (see below).
+  The primary event type this rule listens for. Supported values are `issue_opened` and `pull_request_opened`. These are the only valid values for this field — comment and reaction events from GitHub are handled automatically when `automationEnabled: true` is set on the rule (see below).
 </ParamField>
 
 <ParamField body="syncStatusEnabled" type="boolean">

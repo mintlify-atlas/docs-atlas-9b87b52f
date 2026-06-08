@@ -135,6 +135,8 @@ Events are typed as the `RealtimeEvent` union from `@agentswarm/shared-types`:
 | `task:merged` | `{ taskId, repoId, sourceBranch, targetBranch, … }` | Task branch is merged. |
 | `settings:updated` | `SystemSettings` | Provider or system settings change. |
 | `repository:created` / `repository:updated` / `repository:deleted` | `Repository` | Repository record changes. |
+| `snippet:created` / `snippet:updated` / `snippet:deleted` | `Snippet` | Snippet record is created, updated, or deleted. |
+| `sequence:created` / `sequence:updated` / `sequence:deleted` | `Sequence` | Sequence record is created, updated, or deleted. |
 | `sequence:run_updated` | `SequenceRun` | A prompt sequence run progresses. |
 
 The web app listens for these events via `socket.io-client` and updates component state without requiring a page reload.

@@ -1,7 +1,7 @@
 ---
-title: "Interactive Browser Terminal for Task Workspaces"
+title: "Interactive Browser Terminal for AgentSwarm Workspaces"
 sidebarTitle: "Interactive Terminal"
-description: "Open a live browser terminal into any task workspace. Run interactive Codex or Claude sessions, or use the restricted Git terminal for branch and diff operations."
+description: "Open a live browser terminal into any task workspace. Run interactive Codex or Claude sessions, or use the Git terminal for branch operations."
 ---
 
 AgentSwarm provides a browser-based terminal that connects directly to a task's Docker workspace container. You can open it from the task detail page to run an interactive Codex or Claude agent session, or to access a restricted Git shell for manual branch and diff operations — all without leaving the browser.
@@ -68,10 +68,14 @@ Each terminal session produces structured lifecycle log messages that appear in 
 
 | Event | Message |
 |---|---|
-| Session started | `Interactive terminal session started.` or `Git terminal session started.` |
-| Session ended | `Interactive terminal session ended.` or `Git terminal session ended.` |
-| No changes detected | `Interactive terminal session ended. No workspace changes were detected.` |
-| Changes available for review | `Interactive terminal session ended. Review proposed changes below.` |
+| Interactive session started | `Interactive terminal session started.` |
+| Git session started | `Terminal session started.` |
+| Interactive session ended | `Interactive terminal session ended.` |
+| Git session ended | `Git terminal session ended.` |
+| No changes detected (interactive) | `Interactive terminal session ended. No workspace changes were detected.` |
+| No changes detected (git) | `Git terminal session ended. No workspace changes were detected.` |
+| Changes available for review (interactive) | `Interactive terminal session ended. Review proposed changes below.` |
+| Changes available for review (git) | `Git terminal session ended. Review proposed changes below.` |
 
 A session transcript (up to 2 MB) is saved server-side and can be retrieved by session ID for audit or debugging purposes.
 
